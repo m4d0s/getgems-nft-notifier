@@ -1,0 +1,8 @@
+sqlite3
+pytonlib
+tonsdk
+pathlib
+TonTools
+pytonapi
+aiogram
+tracemalloc
