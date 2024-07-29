@@ -1,7 +1,7 @@
 # getgems-nft-notifier
 ### Создано для команды Luna or Not
  
-- Написано с помощью [API от Getgems](https://api.getgems.io/graphql) и [TON API](https://tonconsole.com), а также подключено [API от CMC]('https://pro.coinmarketcap.com')
+- Написано с помощью [API от Getgems](https://api.getgems.io/graphql) и [TON API](https://tonconsole.com), а также подключено [API от CMC](https://pro.coinmarketcap.com)
 - Функция логирования в файл всех нужных и ненужных действий (с уровнями дебага ещё надо поработать, но не суть)
 - Все данные берутся с базы данных на sqlite
 
