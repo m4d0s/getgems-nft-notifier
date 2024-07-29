@@ -6,8 +6,9 @@ import logging
 import time
 
 from tg_util import nft_history_notify
-from db_util import fetch_data, update_senders_data, get_last_time, enter_last_time, enter_price
-from getgems import get_separate_history_items as new_history_items, coinmarketcup_price
+from date_util import log_format_time
+from db_util import fetch_senders_data, fetch_config_data, update_senders_data, get_last_time, enter_last_time, enter_price
+from getgems import get_new_history, coinmarketcup_price, separate_history_items as sep_items, HistoryType
 from aiogram import Bot, Dispatcher
 import sched
 import threading
@@ -15,13 +16,14 @@ import tracemalloc
 
 from date_util import now, number_to_date, log_format_time
 logging.basicConfig(
-    filename=f'bot.log',
+    filename=f'logs/{log_format_time()}.log',
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-config_data, senders_data = fetch_data()
-bot_token, cmc_api, ton_api, last_time, ton_price = config_data
+elligble = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
+senders_data =  fetch_senders_data()
+bot_token, ton_api, cmc_api, db_path, last_time, ton_price = fetch_config_data()
 
 bot = Bot(bot_token)
 dp = Dispatcher(bot)
@@ -36,30 +38,33 @@ def run_periodically(interval, func, *args, **kwargs):
     s.enter(interval, 1, periodic)
     s.run()
 
-async def prepare_notify(BOT_TOKEN=bot_token, TON_API=ton_api, senders_data=senders_data, first = 10):
-  new_data = senders_data
-  id = -1
+async def prepare_notify(BOT_TOKEN=bot_token, TON_API=ton_api, CMC_API=cmc_api, DB_PATH=db_path,
+                         senders_data=senders_data, first = 10):
   count = 0
+  history_items = []
+  id = -1
   for sender in senders_data:
     id += 1
-    history = await new_history_items(sender[0], TON_API, first)
+    history = await get_new_history(sender[0], TON_API, first, DB_PATH)
+    for i in history:
+      history_items.append((i, sender[1], sender[2], id))
+  
     # logging.info(history)
-    for type in history:
-      if type != 'Other':
-        for item in history[type]:
-          if sender[2] == 0:
-            new_data[id][2] = now()
-          else:
-              await nft_history_notify(item, chat_id = sender[1], TON_API = TON_API, BOT_TOKEN = BOT_TOKEN)
-              count += 1
-              new_data[id][2] = item.time
-  update_senders_data(tuple(new_data))
+  for history in sorted(history_items, key=lambda x: x[0].time):
+    if history[0].type in elligble:
+      if history[2] == 0:
+        senders_data[history[3]][2] = now()
+      elif history[0].time > senders_data[history[3]][2]:
+          await nft_history_notify(history[0], chat_id = history[1], TON_API = TON_API, BOT_TOKEN = BOT_TOKEN)
+          count += 1
+          senders_data[history[3]][2] = history[0].time
+  update_senders_data(tuple(senders_data))
   enter_last_time()
   return count
     
 if __name__ == "__main__":
   
-  thread = threading.Thread(target=run_periodically, args=(300, coinmarketcup_price))
+  thread = threading.Thread(target=run_periodically, args=(300, coinmarketcup_price, cmc_api))
   thread.daemon = True  # Позволяет завершать поток вместе с основным программным процессом
   thread.start()
   

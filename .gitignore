@@ -163,6 +163,7 @@ cython_debug/
 sqlite.db
 bot.log
 tempCodeRunnerFile.py
+#test.py
 
 #vs
 .vs/

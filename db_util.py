@@ -6,22 +6,24 @@ import time
 import sqlite3
 import logging
 from datetime import datetime
-from date_util import now
+from date_util import now, log_format_time
 
 logging.basicConfig(
-    filename=f'bot.log',
+    filename=f'logs/{log_format_time()}.log',
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-def enter_last_time(db_path="sqlite.db", timestamp = now()):
+db_path = 'sqlite.db'
+
+def enter_last_time(db_path=db_path, timestamp = now()):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("UPDATE config SET NOW = ? WHERE rowid = 1", (timestamp,))
     conn.commit()
     conn.close()
     
-def get_last_time(db_path="sqlite.db"):
+def get_last_time(db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("SELECT NOW FROM config LIMIT 1")
@@ -29,14 +31,14 @@ def get_last_time(db_path="sqlite.db"):
     conn.close()
     return last_time[0]
   
-def enter_price(value:float, db_path="sqlite.db"):
+def enter_price(value:float, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("UPDATE config SET TON_PRICE = ? WHERE rowid = 1", (value,))
     conn.commit()
     conn.close()
     
-def get_price(db_path="sqlite.db") -> float:
+def get_price(db_path=db_path) -> float:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("SELECT TON_PRICE FROM config LIMIT 1")
@@ -44,26 +46,36 @@ def get_price(db_path="sqlite.db") -> float:
     conn.close()
     return last_time[0]
 
-def fetch_data(db_path="sqlite.db"):
+def fetch_config_data(db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
     cursor.execute("SELECT * FROM config LIMIT 1")
     config_data = cursor.fetchone()
     
+    conn.close()
+    
+    # Преобразуем данные в список
+    config_data_list = list(config_data) if config_data else []
+    
+    db_path = config_data_list[3]
+    
+    return config_data_list
+
+def fetch_senders_data(db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
     cursor.execute("SELECT * FROM senders")
     senders_data = cursor.fetchall()
     
     conn.close()
-    
-    # Преобразуем данные в списки
-    config_data_list = list(config_data) if config_data else []
     senders_data_list = [list(row) for row in senders_data]
     
-    return [config_data_list, senders_data_list]
+    return senders_data_list
 
 
-def update_senders_data(updated_senders_data, db_path="sqlite.db"):
+def update_senders_data(updated_senders_data, db_path=db_path):
   
   conn = sqlite3.connect(db_path)
   cursor = conn.cursor()

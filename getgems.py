@@ -14,13 +14,12 @@ from tonsdk.contract import Address
 from logging import log
 from pycoingecko import CoinGeckoAPI
 from db_util import get_price
-
-from date_util import now
-from db_util import fetch_data, update_senders_data, get_last_time, enter_last_time, enter_price
+from date_util import number_to_date, log_format_time
+from db_util import get_last_time
 
 # loggining config
 logging.basicConfig(
-    filename=f'bot.log',
+    filename=f'logs/{log_format_time()}.log',
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
@@ -61,18 +60,14 @@ class NftStatusType(Enum):
   ForSale = 1,
   ForAuction = 2
 
-class SaleType(Enum):
+class MarketplaceType(Enum):
   Getgems = 0,
   Other = 1
-
-class AuctionType(Enum):
-  Getgems = 0,
-  Other = 1
-
 
 # XItem classes for better-serving of data
 class HistoryItem:
     def __init__(self, data):
+        self.time = data['time']
         try:
             self.type = HistoryType[data['typeData']['historyType']]
         except KeyError:
@@ -80,7 +75,6 @@ class HistoryItem:
         self.name = data['nft']['name']
         self.address = data['nft']['address']
         self.collection = data['collectionAddress']
-        self.time = data['time']
         if data['typeData']['historyType'] == 'Sold':
           self.sold = SoldItem(data['typeData'])
         else:
@@ -88,24 +82,11 @@ class HistoryItem:
     def __repr__(self):
         return f"HistoryItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
-class SoldItem:
-    def __init__(self, data):
-      self.amount = PriceItem({
-        'price': int(data['price']),
-        'currency': 'TON',
-        'market_fee': int(data['price']) * 0.05,
-        'royalty_fee': int(data['price']) * 0.05,
-        'network_fee': 0,
-      })
-      self.new = data['newOwnerUser']
-      self.old = data['oldOwnerUser']
-    def __repr__(self):
-        return f"SoldType({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
-
 class SocialLinksItem:
     def __init__(self, data, type:SocialLinksType = SocialLinksType.Standart):
       self.links = []
-      if type == SocialLinksType.Standart:
+      if data is None or len(data) == 0: return
+      elif type == SocialLinksType.Standart:
         for link in data:
           if "twitter" in link.lower() or "x.com" in link:
             self.links.append([link, 'Twitter'])
@@ -249,33 +230,60 @@ class BidItem:
 
 class PriceItem:
     def __init__(self, data):
-      self.amount = float(data['price']) / 10**9
+      self.price = float(data['price']) / 10**9
       self.currency = data['currency']
       self.market_fee = float(data['market_fee']) / 10**9
       self.royalty_fee = float(data['royalty_fee']) / 10**9
       self.network_fee = float(data['network_fee']) / 10**9
+      
+      self.usd_amount = 0
+      self.usd_market_fee = 0
+      self.usd_royalty_fee = 0
+      self.usd_network_fee = 0
       self.real_cost()
       
     def __repr__(self):
         return f"PriceItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
     def real_cost(self):
       ton_price = get_price()
-      self.usd_amount = self.amount * ton_price
+      self.usd_amount = self.price * ton_price
       self.usd_market_fee = self.market_fee * ton_price
       self.usd_royalty_fee = self.royalty_fee * ton_price
       self.usd_network_fee = self.network_fee * ton_price
-    def usd_cost(self, amount):
-      return amount * get_price()
+      
+      return self.usd_amount
+    def profit(self, amount):
+      return self.price - self.market_fee - self.royalty_fee - self.network_fee
+    
+class SoldItem:
+    def __init__(self, data):
+      self.amount = PriceItem({
+        'price': int(data['price']),
+        'currency': 'TON',
+        'market_fee': int(data['price']) * 0.05,
+        'royalty_fee': int(data['price']) * 0.05,
+        'network_fee': 0,
+      })
+      self.new = data['newOwnerUser']
+      self.old = data['oldOwnerUser']
+      
+    def details(self):
+      text = [f"<b>Продано за:</b> {self.amount.price} {self.amount.currency} ({self.amount.real_cost()} $)",
+              f"<b>Новый владельец:</b> {address_converter(self.new.wallet)[:4]}...{address_converter(self.new.wallet)[-4:]}",
+              f"<b>Старый владельец:</b> {address_converter(self.old.wallet)[:4]}...{address_converter(self.old.wallet)[-4:]}"]
+      return '\n'.join(text)
+    def __repr__(self):
+        return f"SoldType({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
 class AuctionItem:
     def __init__(self, data):
-      if data['lastBidUser'] is None:
+      if 'lastBidUser' in data or data['lastBidUser'] is None:
         self.last_bid = None
       else:
-        self.last_bid = BidItem({'lastBidAddress': data['lastBidUser']['wallet'], 'lastBidAt': data['lastBidAt']})
+        self.last_bid = data['bid']
       self.type = data['type']
-      if data['type'] == AuctionType.Getgems:
-        price = int(data['price']) if data['price'] is not None else int(data['minBid'])
+      if data['type'] == MarketplaceType.Getgems:
+        price = int(data['price']) if data['price'] is not None else int(data['minNextBid'])
         self.price = PriceItem({
         'price': int(data['price']) ,
         'currency': 'TON',
@@ -312,12 +320,16 @@ class AuctionItem:
         'network_fee': int(data['minNextBid']),
         })
         
+        self.min_step = self.next_bid.price - price
         self.nft_owner = data['nftOwnerAddressUser']
         self.finish_at = data['finishAt']
         self.link = f'https://getgems.io/nft/{data["address"]}'
         
       else:
-        price = int(data['lastBidAmount']) if data['lastBidAmount'] is not None else int(data['nextBidAmount'])
+        price = int(data['lastBidAmount']) if data['lastBidAmount'] is not None and int(data['lastBidAmount']) > 0 \
+                else int(data['nextBidAmount']) if 'nextBidAmount' in data and int(data['nextBidAmount']) > 0 \
+                else int(data['minNextBid']) if 'minNextBid' in data and int(data['minNextBid']) > 0 \
+                else int(data['minBid'])
         self.price = PriceItem({
         'price': price,
         'currency': 'TON',
@@ -327,37 +339,54 @@ class AuctionItem:
         })
         
         # price['price'] = data['nextBidAmount']
+        next_bid = int(data['nextBidAmount']) if 'nextBidAmount' in data and data['nextBidAmount'] is not None else price
         self.next_bid = PriceItem({
-        'price': int(data['nextBidAmount']),
+        'price': next_bid,
         'currency': 'TON',
-        'market_fee': int(data['nextBidAmount']) * float(data['marketplaceFeePercent']),
-        'royalty_fee': int(data['nextBidAmount']) * float(data['royaltyPercent']),
+        'market_fee': next_bid * float(data['marketplaceFeePercent']),
+        'royalty_fee': next_bid * float(data['royaltyPercent']),
         'network_fee': 0,
         })
         
         # price['price'] = data['maxBidAmount']
+        max_bid = int(data['maxBidAmount']) if 'maxBidAmount' in data and data['maxBidAmount'] is not None and int(data['maxBidAmount']) > 0 \
+          else int(data['maxBid']) if 'maxBid' in data and  data['maxBid'] is not None and int(data['maxBid']) > 0 \
+          else -1
+          
         self.max_bid = PriceItem({
-        'price': int(data['maxBidAmount']),
+        'price': max_bid,
         'currency': 'TON',
-        'market_fee': int(data['maxBidAmount']) * float(data['marketplaceFeePercent']),
-        'royalty_fee': int(data['maxBidAmount']) * float(data['royaltyPercent']),
+        'market_fee': max_bid * float(data['marketplaceFeePercent']) if max_bid > 0 else 0,
+        'royalty_fee': max_bid * float(data['royaltyPercent']) if max_bid > 0 else 0,
         'network_fee': 0,
         })
         
         # price['price'] = data['lastBidAmount']
         self.min_bid = PriceItem({
-        'price': int(data['lastBidAmount']),
+        'price': price,
         'currency': 'TON',
-        'market_fee': int(data['lastBidAmount']) * float(data['marketplaceFeePercent']),
-        'royalty_fee': int(data['lastBidAmount']) * float(data['royaltyPercent']),
+        'market_fee': price * float(data['marketplaceFeePercent']),
+        'royalty_fee': price * float(data['royaltyPercent']),
         'network_fee': 0,
         })
         
         self.nft_owner = data['nftOwnerAddressUser']
-        self.min_step = (int(data['nextBidAmount']) - int(data['lastBidAmount']))/10**9
+        self.min_step = int(data['minStep']) / 100 * price if 'minStep' in data and 1 <=int(data['minStep']) <= 100 \
+                        else float(data['minStep']) * price if 'minStep' in data and  1 > int(data['minStep'])\
+                        else price - next_bid
         self.finish_at = data['finishAt']
-        self.link = data['link']
-        
+        self.link = f'https://getgems.io/nft/{data["address"]}'
+    
+    def details(self):
+      text = [f"<b>Выставил на продажу:</b> {address_converter(self.nft_owner.wallet)[:4]}...{address_converter(self.nft_owner.wallet)[-4:]}",
+       f"<b>Текущая цена:</b> {self.price.price} {self.price.currency} ({self.price.real_cost()} $)",
+       #  f"*Минимальная цена:* {self.min_bid.price} {self.min_bid.currency} ({self.min_bid.real_cost()} $)",
+       f"<b>Максимальная цена:</b> {self.max_bid.price} {self.max_bid.currency} ({self.max_bid.real_cost()} $)" if self.max_bid.price > 0 \
+                            else f"Максимальная цена: отсутствует",
+       f"<b>Следующая цена:</b> {self.next_bid.price} {self.next_bid.currency} ({self.next_bid.real_cost()} $)",
+       f"<b>Минимальный шаг:</b> {self.min_step} {self.price.currency}" if self.min_step > 0 else f"*Минимальный шаг:* отсутствует",
+       f"<b>Время окончания:</b> {number_to_date(self.finish_at)}"]
+      return '\n'.join(text) 
     def __repr__(self):
       return f"BidItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"   
 
@@ -371,6 +400,11 @@ class SaleItem:
         'royalty_fee': int(data['royaltyAmount']),
         'network_fee': int(data['networkFee']),
         })
+      
+    def details(self):
+      text = [f"<b>Выставил на продажу:</b> {address_converter(self.nft_owner.wallet)[:4]}...{address_converter(self.nft_owner.wallet)[-4:]}",
+              f"<b>Текущая цена:</b> {self.price.price} {self.price.currency} ({self.price.real_cost()} $)"]
+      return '\n'.join(text)
     def __repr__(self):
       return f"SaleItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
@@ -399,13 +433,36 @@ class NftItem:
         self.status = data['sale'][1]
         self.sale = data['sale'][2]
     def get_content_url(self, original = True):
-      if self.content.type == ContentType.IMAGE:
-        return self.content.image.baseUrl if original else self.content.image.preview | self.content.image.sized
-      elif self.content.type == ContentType.VIDEO or self.content.type == ContentType.Both:
-        return self.content.video.baseUrl if original else self.content.video.preview | self.content.video.sized
+      if self.content is not None: 
+        if self.content.type == ContentType.Image:
+          return self.content.original if original \
+                  else self.content.image.preview if self.content.image.preview is not None \
+                  else self.content.image.url if self.content.image.url is not None \
+                  else self.content.image.sized
+        elif self.content.type == ContentType.Video or self.content.type == ContentType.Both:
+          return self.content.original if original \
+                  else self.content.video.preview if self.content.video.preview is not None \
+                  else self.content.video.url if self.content.video.url is not None \
+                  else self.content.video.sized
+        else: 
+          return 'notloaded.png'
       else: 
-        return None
-    
+        return 'notloaded.png'
+      
+    def notify_text(self):
+      header = f'<b>NFT"{self.name}" появилась в продаже!</b>' if self.history.type == HistoryType.PutUpForSale \
+              else f'<b>NFT "{self.name}" была продана!</b>' if self.history.type == HistoryType.Sold \
+              else f'<b>NFT "{self.name}" была выставлена на аукцион!</b>' if self.history.type == HistoryType.PutUpForAuction \
+              else f'<b>NFT "{self.name}" была заминчена!</b>' if self.history.type == HistoryType.Mint \
+              else f'<b>NFT "{self.name}" была сожжена!</b>' if self.history.type == HistoryType.Burn \
+              else f'<b>NFT "{self.name}" была снята с продажи!</b>' if self.history.type == HistoryType.CancelSale \
+              else f'<b>NFT "{self.name}" была снята с аукциона!</b>' if self.history.type == HistoryType.CancelAuction \
+              else f'<b>NFT "{self.name}" была отправлена новому владельцу!</b>' if self.history.type == HistoryType.Transfer \
+              else f'<i><b>Статус NFT "{self.name}" не определён</b></i>'
+      body = self.sale.details() if self.sale is not None else "_Детальной информации по транзакции не удалось обнаружить_"
+      footer = "Кошелёк владельца | Аккаунт Getgems | Телеграм"
+
+      return f'{header}\n\n{body}\n\n{footer}'.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
     def __repr__(self):
         return f"NftItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
@@ -418,11 +475,19 @@ async def get_user_info(user_address: str) -> UserItem:
     }
 
     data = await get_responce(json_data={'query': query, 'variables': variables})
-    if data['data']['userByAddress'] is None or len(data['data']['userByAddress']) == 0:
+    if data is None or data['data']['userByAddress'] is None or len(data['data']['userByAddress']) == 0:
         variables = {
         "address": address_converter(user_address, AddressType.Unbouncable)
         }
         data = await get_responce(json_data={'query': query, 'variables': variables})
+        if data is None or data['data']['userByAddress'] is None or len(data['data']['userByAddress']) == 0:
+            data = {"data" :
+                    { "userByAddress":
+                      { "wallet" : user_address,
+                        "telegram" : {"hasTelegram" : False},
+                        "name" : user_address,
+                        "lang": "en",
+                        "socialLinks": []}}}
     return UserItem(data['data']['userByAddress'])
   
 async def nft_collection_history(collection_address: str, TON_API, first = 10) -> list[HistoryItem]:
@@ -435,7 +500,7 @@ async def nft_collection_history(collection_address: str, TON_API, first = 10) -
     all_items = []
     data = await get_responce(json_data={'query': query, 'variables': variables})
     if data is None:
-        return None
+        return []
 
     nft_items = data['data']['historyCollectionNftItems']['items']
     for item in nft_items:
@@ -459,7 +524,7 @@ async def get_nft_owner(nft_address: str) -> UserItem:
         return None
     return UserItem(data['data']['reactionsNft']['nft']['owner'])
 
-async def get_sale_info(history: HistoryItem, first = 1) -> SaleType | AuctionType | None:
+async def get_sale_info(history: HistoryItem, first = 1):
   query_native = queries['get_sale_info']['native']
   query_extend = queries['get_sale_info']['extend']
   variables = {
@@ -476,21 +541,27 @@ async def get_sale_info(history: HistoryItem, first = 1) -> SaleType | AuctionTy
                                           
   if native_data is not None and len(native_data) != 0:
       if native_data['__typename'] == 'NftSaleFixPrice':
-        typeofsale = SaleType.Getgems
+        marketplace = MarketplaceType.Getgems
         nftstatus = NftStatusType.ForSale
         native_data['nftOwnerAddressUser'] = owner
         native_data['type'] = typeofsale
         native_data['status'] = nftstatus
+        native_data['address'] = history.address
         sale = SaleItem(native_data)
         
         return [typeofsale, nftstatus, sale]
       
       elif native_data['__typename'] == 'NftSaleAuction':
-        typeofsale = AuctionType.Getgems
+        typeofsale = MarketplaceType.Other
         nftstatus = NftStatusType.ForAuction
         native_data['type'] = typeofsale
         native_data['status'] = nftstatus
         native_data['nftOwnerAddressUser'] = owner
+        native_data['address'] = history.address
+        native_data['bid'] = BidItem({'lastBidAddress': native_data['lastBidUser']['wallet'], 
+                                        'lastBidAt': native_data['lastBidAt']}) \
+                                          if 'lastBidUser' in native_data and native_data['lastBidUser'] is not None \
+                                          else None
         auction = AuctionItem(native_data)
         
         return [typeofsale, nftstatus, auction]
@@ -500,25 +571,33 @@ async def get_sale_info(history: HistoryItem, first = 1) -> SaleType | AuctionTy
     extended_data = responce_extended_data['data']['reactionsNft']['nft']['sale']
     if extended_data is not None and len(extended_data) != 0:
       if extended_data['__typename'] == 'NftSaleFixPriceDisintar':
-        typeofsale = SaleType.Other
+        typeofsale = MarketplaceType.Getgems
         nftstatus = NftStatusType.ForSale
         extended_data['type'] = typeofsale
         extended_data['status'] = nftstatus
         extended_data['nftOwnerAddressUser'] = owner
+        extended_data['address'] = history.address
         sale = SaleItem(extended_data)
         
         return [typeofsale, nftstatus, sale]
       
       elif extended_data['__typename'] == 'TelemintAuction':
-        typeofsale = AuctionType.Other
+        typeofsale = MarketplaceType.Other
         nftstatus = NftStatusType.ForAuction
+        extended_data['bid'] = BidItem({'lastBidAddress': extended_data['lastBidUser']['wallet'], 
+                                        'lastBidAt': extended_data['lastBidAt']}) \
+                                          if 'lastBidUser' in extended_data and extended_data['lastBidUser'] is not None \
+                                          else None
         extended_data['type'] = typeofsale
         extended_data['status'] = nftstatus
         extended_data['nftOwnerAddressUser'] = owner
+        extended_data['address'] = history.address
         auction = AuctionItem(extended_data)
         
         return [typeofsale, nftstatus, auction]
     else:
+      if history.sold is not None:
+        return [None, NftStatusType.NotForSale, history.sold]
       return [None, NftStatusType.NotForSale, None]
 
 async def get_nft_info(history: HistoryItem, first = 1, width = 300, height = 300) -> NftItem:
@@ -554,15 +633,14 @@ async def get_collection_info(collection_address: str) -> dict:
 
 
 # other funcs
-async def get_separate_history_items(collection_address:str, TON_API:str, first) \
+async def get_new_history(collection_address:str, TON_API:str, first, DB_PATH = "sqlite.db") \
                                                   -> dict[str, list[HistoryItem]]:
   all = await nft_collection_history(collection_address, TON_API=TON_API, first=first)
   new = []
   for item in all:
-    if item.time > get_last_time():
+    if item.time > get_last_time(db_path=DB_PATH):
       new.append(item)
-  sep = separate_history_items(new)
-  return sep
+  return new
 
 async def get_responce(json_data, tries = 3, sleep = 1) -> dict | None:
   error = None
@@ -591,6 +669,7 @@ async def tonapi_get_data(key, address, tries = 3, sleep = 1) -> dict | None:
     try:
         client = pytonapi.AsyncTonapi(key)
         nft = await client.nft.get_item_by_address(address)
+        client.close()
         if nft is None:
             raise Exception(f"tonapi_get_data: can't find item with address {address}")
         return nft
@@ -628,7 +707,7 @@ def separate_history_items(all_items: list[HistoryItem]) -> dict[str, list[Histo
         "Other": other
     }
 
-def address_converter(address, format:AddressType = AddressType.Bouncable) -> str:
+def address_converter(address, format:AddressType = AddressType.Unbouncable) -> str:
     try:
         # Создаем объект Address из входного адреса
         addr = Address(address)
@@ -642,7 +721,7 @@ def address_converter(address, format:AddressType = AddressType.Bouncable) -> st
     except Exception as e:
         return f"Error converting address: {e}"  
 
-def coinmarketcup_price(id=11419) -> float:
+def coinmarketcup_price(cmc_api, id=11419) -> float:
   apiurl = 'https://pro-api.coinmarketcap.com'
   resp = "/v1/cryptocurrency/quotes/latest"
   url = apiurl + resp
@@ -652,7 +731,7 @@ def coinmarketcup_price(id=11419) -> float:
   }
   headers = {
     'Accepts': 'application/json',
-    'X-CMC_PRO_API_KEY': 'e4b75a3b-01ab-465b-982d-d64a1a687ffd',
+    'X-CMC_PRO_API_KEY': cmc_api,
   }
   
   response = requests.get(url, headers=headers, params=parameters)
