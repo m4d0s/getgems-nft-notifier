@@ -6,12 +6,43 @@ import time
 import sqlite3
 import logging
 from datetime import datetime
+from date_util import now
 
 logging.basicConfig(
-    filename='bot.log',
-    level=logging.INFO,
+    filename=f'bot.log',
+    level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+def enter_last_time(db_path="sqlite.db", timestamp = now()):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE config SET NOW = ? WHERE rowid = 1", (timestamp,))
+    conn.commit()
+    conn.close()
+    
+def get_last_time(db_path="sqlite.db"):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT NOW FROM config LIMIT 1")
+    last_time = cursor.fetchone()
+    conn.close()
+    return last_time[0]
+  
+def enter_price(value:float, db_path="sqlite.db"):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE config SET TON_PRICE = ? WHERE rowid = 1", (value,))
+    conn.commit()
+    conn.close()
+    
+def get_price(db_path="sqlite.db") -> float:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT TON_PRICE FROM config LIMIT 1")
+    last_time = cursor.fetchone()
+    conn.close()
+    return last_time[0]
 
 def fetch_data(db_path="sqlite.db"):
     conn = sqlite3.connect(db_path)

@@ -6,25 +6,22 @@ import time
 import datetime
 import aiogram
 import logging
+from logging import log
 
-logging.basicConfig(
-    filename='bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-from getgems import tonapi_get_data, HistoryItem, HistoryType, address_converter, AddressType
+from getgems import tonapi_get_data, HistoryItem, HistoryType, address_converter, AddressType, get_nft_info
 from date_util import number_to_date
 
 from aiogram import Bot, Dispatcher, types
-# from aiogram.utils.keyboard import InlineKeyboardBuilder
-# from aiogram.enums import ParseMode
-# from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 
+logging.basicConfig(
+    filename=f'bot.log',
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 async def send_message(bot_token:str, data:HistoryItem, chat_id:int):
     bot = Bot(bot_token)
@@ -38,11 +35,20 @@ async def send_message(bot_token:str, data:HistoryItem, chat_id:int):
     
     # Добавление кнопок
     buttons = []
+    getgems_button = InlineKeyboardButton("GetGems", url="https://getgems.io")
+    tonviever_button = InlineKeyboardButton("TonViever", url="https://tonviever.com")
+    buttons.append([getgems_button, tonviever_button])
+    telegram_button = InlineKeyboardButton("Telegram", url=data.social[0])
+    buttons.append([telegram_button])
+    
+    temp = []
     for link in data.social:
+        if len(temp) == 3:
+            buttons.append(temp)
+            temp = []
         buttons.append(InlineKeyboardButton(link, url=link))
-        InlineKeyboardButton("Button 1", callback_data="button1")
-    button2 = InlineKeyboardButton("Button 2", callback_data="button2")
-    button3 = InlineKeyboardButton("Button 3", callback_data="button3")
+    if len(temp) > 0:
+        buttons.append(temp)
     
     keyboard.add(buttons)
     
@@ -57,18 +63,16 @@ async def send_message(bot_token:str, data:HistoryItem, chat_id:int):
     )
     
 async def nft_history_notify(history_item:HistoryItem, chat_id:int, TON_API:str, BOT_TOKEN:str):
-    tonapi_data = await tonapi_get_data(TON_API, history_item.address)
-    # print(tonapi_data)
-    print(tonapi_data.collection.address)
-    collection_add = f"{address_converter(tonapi_data.collection.address.to_raw(), format=AddressType.Unbouncable)}  ({tonapi_data.collection.name})"
+    nft = await get_nft_info(history_item)
 
-    if history_item.type == HistoryType.Sold:
-        print(f'Sold: {history_item.address} on collection {collection_add} ({number_to_date(history_item.time)})')
-    elif history_item.type == HistoryType.PutUpForSale:
-        print(f'New NFT on sale: {history_item.address} on collection {collection_add} ({number_to_date(history_item.time)})')
-    elif history_item.type == HistoryType.PutUpForAuction:
-        print(f'New auction: {history_item.address} on collection {collection_add} ({number_to_date(history_item.time)})')
-    
-    print(history_item)
+    if nft.history.type == HistoryType.Sold:
+        log(logging.INFO, f'Sold: {nft.address} on collection {nft.collection.address} ({number_to_date(nft.history.time)})')
+    elif nft.history.type == HistoryType.PutUpForSale:
+        log(logging.INFO, f'New NFT on sale: {nft.collection.address} on collection {nft.collection.address} ({number_to_date(nft.history.time)})')
+    elif nft.history.type == HistoryType.PutUpForAuction:
+        log(logging.INFO, f'New auction: {nft.collection.address} on collection {nft.collection.address} ({number_to_date(nft.history.time)})')
+    else:
+        log(logging.INFO, history_item.address)
+    log(logging.INFO, history_item)
     # await send_message(BOT_TOKEN, f'{history_item.address} on collection {collection_add}', history_item.address)
     

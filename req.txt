@@ -6,3 +6,7 @@ TonTools
 pytonapi
 aiogram
 tracemalloc
+re
+pycoingecko
+sched
+threading

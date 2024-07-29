@@ -2,8 +2,8 @@ from datetime import datetime
 import logging
 
 logging.basicConfig(
-    filename='bot.log',
-    level=logging.INFO,
+    filename=f'bot.log',
+    level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
@@ -15,6 +15,11 @@ def date_to_number(date_str):
 def number_to_date(timestamp):
     dt = datetime.fromtimestamp(timestamp)
     date_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+    return date_str
+
+def log_format_time(timestamp):
+    dt = datetime.fromtimestamp(timestamp)
+    date_str = dt.strftime('%Y%m%d%H%M')
     return date_str
 
 def now():

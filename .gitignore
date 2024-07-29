@@ -162,3 +162,8 @@ cython_debug/
 #Just some files i dont want to publish
 sqlite.db
 bot.log
+tempCodeRunnerFile.py
+
+#vs
+.vs/
+.vscode/
