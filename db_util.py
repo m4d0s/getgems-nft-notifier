@@ -1,11 +1,5 @@
-import requests
-import asyncio
-import sqlite3
-import json
-import time
 import sqlite3
 import logging
-from datetime import datetime
 from date_util import now, log_format_time
 
 logging.basicConfig(
@@ -74,18 +68,61 @@ def fetch_senders_data(db_path=db_path):
     
     return senders_data_list
 
+def get_senders_data_by_address(address, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM senders WHERE collection_address = ?", (address,))
+    senders_data = cursor.fetchone()
+    
+    conn.close()
+    senders_data_list = list(senders_data)
+    
+    return senders_data_list
 
-def update_senders_data(updated_senders_data, db_path=db_path):
+def update_full_senders_data(updated_senders_data, db_path=db_path):
   
-  conn = sqlite3.connect(db_path)
-  cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    for sender in updated_senders_data:
+        cursor.execute('''
+            UPDATE senders
+            SET collection_address = ?, telegram_id = ?, last_time = ?
+            WHERE id = ?
+        ''', (sender[0], sender[1], sender[2], sender[3]))
+    
+    conn.commit()
+    conn.close()
+
+def get_ad(db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM ads")
+    ad = cursor.fetchall()
+    
+    conn.close()
+    
+    ad_list = [list(row) for row in ad]
+    now_time = now()
+    
+    #id name link time start end approve
+    for i in ad[1:]:
+        if i[4] < now_time < i[5] and i[6] == 1:
+            return i
+    return ad_list[0]
+
+def update_senders_data(sender, db_path=db_path):
   
-  for sender in updated_senders_data:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
     cursor.execute('''
         UPDATE senders
         SET collection_address = ?, telegram_id = ?, last_time = ?
         WHERE id = ?
     ''', (sender[0], sender[1], sender[2], sender[3]))
   
-  conn.commit()
-  conn.close()
+    conn.commit()
+    conn.close()
