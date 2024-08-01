@@ -20,7 +20,9 @@
 - Go to the console, go to the root folder and write the command:
 `pip install -r req.txt `
 - After that, go to the newly created database and enter the following fields (I advise you to not change the field with the location of the database, it has not fully configured yet, but used somewhere), without these keys, the program will not work correctly ([Recomend to use DB Browser](https://sqlitebrowser.org/dl/)):
-![image](https://github.com/user-attachments/assets/5c82561b-c206-4aea-9e39-1fe091397327)
+
+![image](https://github.com/user-attachments/assets/9671a5b7-1bfe-4322-b891-c151dff9a9d1)
+
 - Don't forget to read the file `../logs/test.log`, it's important :)
 - Finally back to the root folder, open the console and write:
 `python main.py `
