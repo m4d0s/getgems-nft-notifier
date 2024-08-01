@@ -1,5 +1,6 @@
 import sqlite3
 import logging
+import json
 from date_util import now, log_format_time
 
 logging.basicConfig(
@@ -8,7 +9,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-db_path = 'sqlite.db'
+db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
 
 def enter_last_time(db_path=db_path, timestamp = now()):
     conn = sqlite3.connect(db_path)
@@ -30,25 +31,29 @@ def get_last_time(db_path=db_path):
     
     return last_time[0]
   
-def enter_price(value:float, db_path=db_path):
+def enter_price(value, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("UPDATE config SET TON_PRICE = ? WHERE rowid = 1", (value,))
+    for k, v in value.items():
+        cursor.execute("""
+        INSERT OR REPLACE INTO price (id, value, name) 
+        VALUES (?, ?, ?)
+        """, (k, v[0], v[1]))
     conn.commit()
     
     conn.close()
     
-def get_price(db_path=db_path) -> float:
+def get_price(db_path=db_path, name="") -> dict:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT TON_PRICE FROM config LIMIT 1")
-    last_time = cursor.fetchone()
+    cursor.execute("SELECT * FROM price")
+    prices = cursor.fetchall()
     
     conn.close()
     
-    return last_time[0]
+    return {item[1]: item[2] for item in prices}
 
 def fetch_config_data(db_path=db_path):
     conn = sqlite3.connect(db_path)

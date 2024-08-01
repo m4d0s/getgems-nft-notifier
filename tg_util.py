@@ -2,10 +2,12 @@ import asyncio
 import logging
 import aiogram
 import re
+import json
 from logging import log
 
 from getgems import HistoryItem, HistoryType, ContentType, NftItem, get_nft_info, get_collection_info
 from getgems import SocialLinksItem, MarketplaceType
+from datetime import timezone
 from date_util import number_to_date, log_format_time
 from db_util import get_ad, fetch_config_data
 
@@ -24,36 +26,45 @@ logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logging.getLogger('asyncio').setLevel(logging.DEBUG)
 
-async def send_notify(bot_token:str, data:NftItem, chat_id:int, chat_prefix = "-100", retries = 3):
+translate = json.load(open('getgems.json', 'r', encoding='utf-8'))["translate"]
+
+async def send_notify(bot_token:str, data:NftItem, chat_id:int, lang:str, tz:int, chat_prefix = "-100", retries = 3):
+    
+    if data.sale is None:
+        logging.error(f"Sale is None: {data}")
+        return -1
+    
     bot = Bot(bot_token)
     bot_info = await bot.get_me()
 
     # Создание клавиатуры с кнопками
-    keyboard = InlineKeyboardMarkup(row_width=3)
-    
+    keyboard = InlineKeyboardMarkup(row_width=2)
+
     # Добавление кнопок
-    getgems_text = "Buy now on Getgems" if data.marketplace == MarketplaceType.Getgems or "getgems" in data.sale.link\
-        else f"Buy now on {extract_main_domain(url=data.sale.link)}"
+    getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if data.marketplace == MarketplaceType.Getgems or "getgems" in data.sale.link\
+        else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=data.sale.link)}"
     getgems_button = InlineKeyboardButton(getgems_text, url=data.sale.link)
-    tonviever_button = InlineKeyboardButton("Check on TonViewer", url=f"https://tonviever.com/{data.address}")
+    tonviever_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{data.address}")
     keyboard.add(getgems_button, tonviever_button)
     
     ad = list(get_ad())
     if ad[2] == "" or ad[2] == "{bot.link}":
         ad[2] = f"https://t.me/{bot_info.username}"
+        ad[1] = translate[lang]['tg_util'][4]
     else:
         ad[1] = f"AD: {ad[1]}"
     ad_button = InlineKeyboardButton(ad[1], url=ad[2])
     keyboard.add(ad_button)
     
-    collection_button = InlineKeyboardButton("Collection on Getgems", url=data.collection.get_url())
+    collection_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][2]} Getgems", url=data.collection.get_url())
     keyboard.add(collection_button)
     
-    setup_button = InlineKeyboardButton(text="Setup for your group/channel", url=f"https://t.me/{bot_info.username}?startgroup=true")
+    setup_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=f"https://t.me/{bot_info.username}?startgroup=true")
     keyboard.add(setup_button)
     
-    text = data.notify_text()
+    text = data.notify_text(tz = tz, lang=lang)
     content = data.get_content_url()
     # Отправка сообщения с фото и клавиатурой
     for i in range(retries + 1):
@@ -64,7 +75,7 @@ async def send_notify(bot_token:str, data:NftItem, chat_id:int, chat_prefix = "-
                     photo=content if "https://" in content else data.get_content_url(original=False),
                     caption=text,
                     parse_mode=ParseMode.HTML,
-                    reply_markup=keyboard
+                    reply_markup=keyboard                  
                 )
             elif data.content.type == ContentType.Video:
                 await bot.send_video(
@@ -97,7 +108,7 @@ def extract_main_domain(url: str):
       return match.group(1)
     return None 
         
-async def nft_history_notify(history_item:HistoryItem, chat_id:int, TON_API:str, BOT_TOKEN:str):
+async def nft_history_notify(history_item:HistoryItem, chat_id:int, TON_API:str, BOT_TOKEN:str, lang:str, tz=int):
     nft = await get_nft_info(history_item)
 
     if nft.history.type == HistoryType.Sold:
@@ -109,7 +120,7 @@ async def nft_history_notify(history_item:HistoryItem, chat_id:int, TON_API:str,
     else:
         log(logging.INFO, f"Another action happened: {history_item}")
         return
-    await send_notify(BOT_TOKEN, data = nft, chat_id = chat_id)
+    await send_notify(BOT_TOKEN, data = nft, chat_id = chat_id, lang=lang, tz=tz)
     
 # class Form(StatesGroup):
 #     waiting_for_nft_address = State()

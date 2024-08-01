@@ -1,6 +1,6 @@
 {
     "api_url": "https://api.getgems.io/graphql",
-    
+    "db_path": "sqlite.db",
     "queries":{
         "nft_collection_history": "query HistoryCollectionSales($collectionAddress: String!, $first: Int!) {\n  historyCollectionNftItems(collectionAddress: $collectionAddress, first: $first) {\n    items {\n      address\n      collectionAddress\n      time\n      typeData {\n        ... on HistoryTypeMint {\n          type\n          historyType\n        }\n        ... on HistoryTypeTransfer {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n        ... on HistoryTypeCancelSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypeSold {\n          type\n          historyType\n          oldOwner\n          newOwner\n          price\n          rejectFromGlobalTop\n        }\n        ... on HistoryTypePutUpForSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypePutUpForAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeCancelAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeBurn {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n      }\n      nft {\n        address\n        name\n      }\n    }\n  }\n}",
     "get_sale_info":
@@ -12,5 +12,22 @@
     "get_collection_info": "query NftCollectionByAddress($address: String!) {\n  nftCollectionByAddress(address: $address) {\n    name\n    socialLinks\n    address\n  }\n}",
     "get_user_info" : "query UserByAddress($address: String!) {\n  userByAddress(address: $address) {\n    wallet\n    name\n    lang\n    telegram {\n      hasTelegram\n      userName\n    }\n    socialLinks {\n      type\n      url\n    }\n  }\n}",
     "get_nft_owner" : "query Owner($address: String!, $first: Int!) {\n  reactionsNft(address: $address, first: $first) {\n    nft {\n      owner {\n        wallet\n          name\n          lang\n          telegram {\n            hasTelegram\n            userName\n          }\n          socialLinks {\n            url\n            type\n          }\n      }\n    }\n  }\n}"
+    },
+
+    "translate":{
+        "en": {
+            "SoldItem": ["Sold for:", "Market fee:", "Royalty fee:", "Network fee:", "Seller's profit:", "New owner:", "Old owner:"],
+            "AuctionItem": ["Listed for sale:", "Current price:", "Market fee:", "Royalty fee:", "Network fee:", "Maximum price:", "Next price:", "Minimum increment:", "End time:", "Profit:"],
+            "SaleItem": ["Listed for sale:", "Current price:", "Market fee:", "Royalty fee:", "Network fee:", "Seller's profit:"],
+            "NftItem": ["appeared for sale!", "was sold!", "was listed at auction!", "was minted!", "was burned!", "was withdrawn from sale!", "was withdrawn from auction!", "was sent to a new owner!", "Undefined NFT status", "No detailed information on the transaction could be found", "Rarity:", "Reactions:", "Attributes:", "Owner's wallet", "Getgems account", "Telegram", "Time of tx:"],
+            "tg_util": ["Buy now on", "Check on", "Collection on", "⚙️ Set up for your group/channel ⚙️", "You can place your AD here"]
+        },
+        "ru":{
+            "SoldItem":["Продано за:","Комиссия маркета:","Комиссия роялти:","Комиссия сети:","Профит продавца:","Новый владельец:","Старый владельец:"],
+            "AuctionItem": ["Выставил на продажу:", "Текущая цена:", "Комиссия маркета:", "Комиссия роялти:", "Комиссия сети:", "Максимальная цена:", "Следующая цена:", "Минимальный шаг:", "Время окончания:", "Прибыль продавца:"],
+            "SaleItem" : ["Выставил на продажу:", "Текущая цена:", "Комиссия маркета:", "Комиссия роялти:", "Комиссия сети:", "Профит продавца:"],
+            "NftItem" : ["появилась в продаже!", "была продана!", "была выставлена на аукцион!", "была заминчена!", "была сожжена!", "была снята с продажи!", "была снята с аукциона!", "была отправлена новому владельцу!", "Не определён статус NFT", "Детальной информации по транзакции не удалось обнаружить", "Уникальность:", "Реакции:", "Атрибуты:", "Кошелёк владельца", "Аккаунт Getgems", "Телеграм", "Время транзакции:"],
+            "tg_util" : ["Купить на", "Смотреть на", "Коллекция на", "⚙️ Настроить для вашей группы/канала ⚙️", "Ты можешь поместить свою рекламу здесь"]
+        }
     }
 }
