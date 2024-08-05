@@ -24,6 +24,10 @@ logging.basicConfig(
 # just some needed values
 json_data = json.load(open('getgems.json', 'r', encoding='utf-8'))
 api_url, queries, translate = json_data['api_url'], json_data['queries'], json_data['translate']
+max_retries = 5
+initial_sleep = 5
+max_concurrent_requests = 5
+semaphore = asyncio.Semaphore(max_concurrent_requests)
 
 #Enum variables for XItem classes
 class UserLinkType(Enum):
@@ -587,18 +591,18 @@ class NftItem:
 
 
 # get-funcs to scratch data from Getgems GraphQL API
-async def get_user_info(user_address: str) -> UserItem:
+async def get_user_info(session:aiohttp.ClientSession, user_address: str) -> UserItem:
     query = queries['get_user_info']
     variables = {
         "address": user_address
     }
 
-    data = await get_responce(json_data={'query': query, 'variables': variables})
+    data = await get_responce(session,json_data={'query': query, 'variables': variables})
     if data is None or data['data']['userByAddress'] is None or len(data['data']['userByAddress']) == 0:
         variables = {
             "address": address_converter(user_address, AddressType.Unbouncable)
         }
-        data = await get_responce(json_data={'query': query, 'variables': variables})
+        data = await get_responce(session,json_data={'query': query, 'variables': variables})
         if data is None or data['data']['userByAddress'] is None or len(data['data']['userByAddress']) == 0:
             data = {
                 "data": {
@@ -613,7 +617,7 @@ async def get_user_info(user_address: str) -> UserItem:
             }
     return UserItem(data['data']['userByAddress'])
   
-async def get_new_history(senders_data: tuple, TON_API, first=10) -> list[HistoryItem]:
+async def get_new_history(session:aiohttp.ClientSession, senders_data: tuple, TON_API, first=10) -> list[HistoryItem]:
     query = queries['nft_collection_history']
     variables = {
         "collectionAddress": senders_data[0],
@@ -623,7 +627,7 @@ async def get_new_history(senders_data: tuple, TON_API, first=10) -> list[Histor
     all_items = []
     last_time = senders_data[2]
     log_text = f"Items in history (last timestamp: {senders_data[2]}):\n"
-    data = await get_responce(json_data={'query': query, 'variables': variables})
+    data = await get_responce(session, json_data={'query': query, 'variables': variables})
     if data is None:
         return []
 
@@ -632,7 +636,7 @@ async def get_new_history(senders_data: tuple, TON_API, first=10) -> list[Histor
 
     for item in sorted(nft_items, key=lambda x: x['time'], reverse=True):
         if item['typeData']['historyType'] == 'Sold' or item['typeData']['historyType'] == 'Transfer':
-            tasks.append((item, get_user_info(item['typeData']['newOwner']), get_user_info(item['typeData']['oldOwner'])))
+            tasks.append((item, get_user_info(session, item['typeData']['newOwner']), get_user_info(session, item['typeData']['oldOwner'])))
 
     results = await asyncio.gather(*[task[1] for task in tasks], *[task[2] for task in tasks])
 
@@ -654,19 +658,19 @@ async def get_new_history(senders_data: tuple, TON_API, first=10) -> list[Histor
     logging.info(log_text)
     return all_items
 
-async def get_nft_owner(nft_address: str) -> UserItem:
+async def get_nft_owner(session:aiohttp.ClientSession, nft_address: str) -> UserItem:
     query = queries['get_nft_owner']
     variables = {
         "address": nft_address,
         "first": 1
     }
 
-    data = await get_responce(json_data={'query': query, 'variables': variables})
+    data = await get_responce(session,json_data={'query': query, 'variables': variables})
     if data is None:
         return None
     return UserItem(data['data']['reactionsNft']['nft']['owner'])
 
-async def get_sale_info(history: HistoryItem, first=1):
+async def get_sale_info(session:aiohttp.ClientSession, history: HistoryItem, first=1):
     query_native = queries['get_sale_info']['native']
     query_extend = queries['get_sale_info']['extend']
     variables = {
@@ -679,8 +683,8 @@ async def get_sale_info(history: HistoryItem, first=1):
     nftstatus = NftStatusType.NotForSale
     currency = history.sold.currency if history.sold is not None else "TON"
     
-    owner_task = asyncio.create_task(get_nft_owner(history.address))
-    responce_native_task = asyncio.create_task(get_responce(json_data={'query': query_native, 'variables': variables}))
+    owner_task = asyncio.create_task(get_nft_owner(session, history.address))
+    responce_native_task = asyncio.create_task(get_responce(session, json_data={'query': query_native, 'variables': variables}))
 
     owner = await owner_task
     responce_native_data = await responce_native_task
@@ -705,13 +709,13 @@ async def get_sale_info(history: HistoryItem, first=1):
             native_data['nftOwnerAddressUser'] = owner
             native_data['address'] = history.address
             if 'lastBidUser' in native_data and native_data['lastBidUser'] is not None:
-                native_data['lastBidUser'] = await get_user_info(native_data['lastBidUser']['wallet'])
+                native_data['lastBidUser'] = await get_user_info(session, native_data['lastBidUser']['wallet'])
                 native_data['bid'] = BidItem({'lastBidAddress': native_data['lastBidUser'], 'lastBidAt': native_data['lastBidAt']}) if 'lastBidUser' in native_data and native_data['lastBidUser'] is not None else None
             else:
                 native_data['bid'] = None
             sale = AuctionItem(native_data)
     else:
-        responce_extended_task = asyncio.create_task(get_responce(json_data={'query': query_extend, 'variables': variables}))
+        responce_extended_task = asyncio.create_task(get_responce(session, json_data={'query': query_extend, 'variables': variables}))
         responce_extended_data = await responce_extended_task
         extended_data = responce_extended_data['data']['reactionsNft']['nft']['sale']
         if extended_data is not None and len(extended_data) != 0:
@@ -733,7 +737,7 @@ async def get_sale_info(history: HistoryItem, first=1):
                 extended_data['nftOwnerAddressUser'] = owner
                 extended_data['address'] = history.address
                 if 'lastBidUser' in extended_data and extended_data['lastBidUser'] is not None:
-                    extended_data['lastBidUser'] = await get_user_info(extended_data['lastBidUser']['wallet'])
+                    extended_data['lastBidUser'] = await get_user_info(session, extended_data['lastBidUser']['wallet'])
                     extended_data['bid'] = BidItem({'lastBidAddress': extended_data['lastBidUser'], 'lastBidAt': extended_data['lastBidAt']}) if 'lastBidUser' in extended_data and extended_data['lastBidUser'] is not None else None
                 else:
                     extended_data['bid'] = None
@@ -744,7 +748,7 @@ async def get_sale_info(history: HistoryItem, first=1):
 
     return [typeofsale, nftstatus, sale]
 
-async def get_nft_info(history: HistoryItem, first=1, width=1000, height=1000, notloadedcontent="notloaded.png") -> NftItem:
+async def get_nft_info(session:aiohttp.ClientSession, history: HistoryItem, first=1, width=1000, height=1000, notloadedcontent="notloaded.png") -> NftItem:
     query = queries['get_nft_info']
     json_data = {
         "query": query,
@@ -756,8 +760,8 @@ async def get_nft_info(history: HistoryItem, first=1, width=1000, height=1000, n
         }
     }
 
-    responce_task = asyncio.create_task(get_responce(json_data))
-    sale_info_task = asyncio.create_task(get_sale_info(history))
+    responce_task = asyncio.create_task(get_responce(session, json_data))
+    sale_info_task = asyncio.create_task(get_sale_info(session, history))
 
     responce = await responce_task
     if responce is None:
@@ -773,25 +777,25 @@ async def get_nft_info(history: HistoryItem, first=1, width=1000, height=1000, n
     
     return nft
 
-async def get_collection_info(collection_address: str) -> CollectionItem:
+async def get_collection_info(session:aiohttp.ClientSession, collection_address: str) -> CollectionItem:
     query = queries['get_collection_info']
     variables = {
         "address": collection_address
     }
 
-    data = await get_responce(json_data={"query": query, "variables": variables})
+    data = await get_responce(session, json_data={"query": query, "variables": variables})
     data = data['data']['nftCollectionByAddress']
     logging.info("Collection info: " + str(data))
     return CollectionItem(data)
 
 # other funcs
-async def get_responce(json_data, tries=3, sleep=3) -> dict | None:
+async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: int = max_retries, sleep: int = initial_sleep) -> dict | None:
     error = None
     for i in range(tries + 1):
         if i > 0:
-            logging.info(f"Retry to get_response number {i}")
+            logging.info(f"Retry to get_response number {i} after {sleep} seconds")
         try:
-            async with aiohttp.ClientSession() as session:
+            async with semaphore:  # Ограничение параллелизма
                 async with session.post(api_url, json=json_data) as response:
                     response.raise_for_status()
                     data = await response.json()
@@ -804,10 +808,15 @@ async def get_responce(json_data, tries=3, sleep=3) -> dict | None:
             await asyncio.sleep(sleep)
             logging.error(f"Произошла ошибка: {e}. Следующая попытка через {sleep} сек.")
             error = e
+            sleep *= 2  # Увеличиваем интервал ожидания (backoff strategy)
             continue
     logging.error(f"Ошибка при выполнении запроса: {error}")
     return None
 
+async def fetch_data(json_data: dict) -> dict | None:
+    async with aiohttp.ClientSession() as session:
+        return await get_responce(session, json_data)
+  
 async def tonapi_get_data(key, address, tries=3, sleep=3) -> dict | None:
     for i in range(tries + 1):
         if i > 0:

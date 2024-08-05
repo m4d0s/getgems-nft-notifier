@@ -3,6 +3,7 @@ import logging
 import re
 import json
 import aiofiles
+import aiohttp
 from logging import log
 from typing import List, Tuple
 
@@ -121,10 +122,10 @@ async def send_notify(bot_token: str, data: NftItem, chat_id: int, lang: str, tz
 
     return -1
         
-async def nft_history_notify(history_item: HistoryItem, chat_id: int, TON_API: str, BOT_TOKEN: str, lang: str, tz: int = 0):
+async def nft_history_notify(session:aiohttp.ClientSession, history_item: HistoryItem, chat_id: int, TON_API: str, BOT_TOKEN: str, lang: str, tz: int = 0):
     try:
         # Получение информации о NFT
-        nft = await get_nft_info(history_item)
+        nft = await get_nft_info(session, history_item)
         if nft is None:
             logging.error(f"Failed to get NFT info: {history_item}")
             return
@@ -199,14 +200,14 @@ async def run_periodically(interval, func, *args, **kwargs):
         await func(*args, **kwargs)
         await asyncio.sleep(interval)
 
-async def prepare_notify(BOT_TOKEN=bot_token, TON_API=ton_api, CMC_API=cmc_api, senders_data=senders_data, first = 10):
+async def prepare_notify(session:aiohttp.ClientSession, BOT_TOKEN=bot_token, TON_API=ton_api, CMC_API=cmc_api, senders_data=senders_data, first = 10):
     count = 0
     history_items = []
 
     # Сбор истории для каждого отправителя
     async def gather_history_for_sender(sender: Tuple, index: int) -> None:
         nonlocal history_items
-        history = await get_new_history(sender, TON_API, first)
+        history = await get_new_history(session, sender, TON_API, first)
         for i in history:
             history_items.append((i, sender[1], sender[2], index, sender[5], sender[6]))
 
@@ -222,7 +223,7 @@ async def prepare_notify(BOT_TOKEN=bot_token, TON_API=ton_api, CMC_API=cmc_api, 
             if history.time == 0:
                 senders_data[sender_index][2] = now()
             else:
-                await nft_history_notify(history, chat_id, TON_API, BOT_TOKEN, lang, tz)
+                await nft_history_notify(session, history, chat_id, TON_API, BOT_TOKEN, lang, tz)
                 count += 1
                 senders_data[sender_index][2] = history.time
 
@@ -240,24 +241,26 @@ async def enter_cmc_price():
     price = coinmarketcap_price(cmc_api, price_ids)
     enter_price(price)
     
-async def history_notify(counter=0):
+async def history_notify(session:aiohttp.ClientSession ,counter=0):
     logging.info("Start checking for new history data...")
-    count = await prepare_notify()
+    count = await prepare_notify(session)
     logging.info(f"Notification process ended, total notifications: {count}, now timestamp" + 
                 f" {get_last_time()} ({number_to_date(get_last_time())})")
 
 async def main():
-    logging.info("\n\n----- Start of new session, version: " + app_version +
-                  ", now timestamp: "  + str(get_last_time()) + 
-                  ", date: " + number_to_date(get_last_time()) +" -----")
+    async with aiohttp.ClientSession() as session:
+        
+        logging.info("\n\n----- Start of new session, version: " + app_version +
+                    ", now timestamp: "  + str(get_last_time()) + 
+                    ", date: " + number_to_date(get_last_time()) +" -----")
 
-    # Запускаем асинхронные задачи
-    asyncio.create_task(run_periodically(300, enter_cmc_price))
-    asyncio.create_task(run_periodically(5, history_notify))
+        # Запускаем асинхронные задачи
+        asyncio.create_task(run_periodically(300, enter_cmc_price))
+        asyncio.create_task(run_periodically(5, history_notify, session))
 
-    enter_price(coinmarketcap_price(cmc_api, price_ids))
+        # enter_price(coinmarketcap_price(cmc_api, price_ids))
 
-    await dp.start_polling()
+        await dp.start_polling()
 
 if __name__ == '__main__':
     # Запуск асинхронной функции main
