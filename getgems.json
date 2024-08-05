@@ -16,18 +16,22 @@
 
     "translate":{
         "en": {
+            "Name" : "English",
             "SoldItem": ["Sold for:", "Market fee:", "Royalty fee:", "Network fee:", "Seller's profit:", "New owner:", "Old owner:"],
             "AuctionItem": ["Listed for sale:", "Current price:", "Market fee:", "Royalty fee:", "Network fee:", "Maximum price:", "Next price:", "Minimum increment:", "End time:", "Profit:"],
             "SaleItem": ["Listed for sale:", "Current price:", "Market fee:", "Royalty fee:", "Network fee:", "Seller's profit:"],
             "NftItem": ["appeared for sale!", "was sold!", "was listed at auction!", "was minted!", "was burned!", "was withdrawn from sale!", "was withdrawn from auction!", "was sent to a new owner!", "Undefined NFT status", "No detailed information on the transaction could be found", "Rarity:", "Reactions:", "Attributes:", "Owner's wallet", "Getgems account", "Telegram", "Time of tx:"],
-            "tg_util": ["Buy now on", "Check on", "Collection on", "⚙️ Set up for your group/channel ⚙️", "You can place your AD here"]
+            "tg_util": ["Buy now on", "Check on", "Collection on", "⚙️ Set up for your group/channel ⚙️", "You can place your AD here"],
+            "date_util" : ["ago", "months", "days", "hours", "minutes", "seconds"]
         },
         "ru":{
+            "Name" : "Русский",
             "SoldItem":["Продано за:","Комиссия маркета:","Комиссия роялти:","Комиссия сети:","Профит продавца:","Новый владельец:","Старый владельец:"],
             "AuctionItem": ["Выставил на продажу:", "Текущая цена:", "Комиссия маркета:", "Комиссия роялти:", "Комиссия сети:", "Максимальная цена:", "Следующая цена:", "Минимальный шаг:", "Время окончания:", "Прибыль продавца:"],
             "SaleItem" : ["Выставил на продажу:", "Текущая цена:", "Комиссия маркета:", "Комиссия роялти:", "Комиссия сети:", "Профит продавца:"],
             "NftItem" : ["появилась в продаже!", "была продана!", "была выставлена на аукцион!", "была заминчена!", "была сожжена!", "была снята с продажи!", "была снята с аукциона!", "была отправлена новому владельцу!", "Не определён статус NFT", "Детальной информации по транзакции не удалось обнаружить", "Уникальность:", "Реакции:", "Атрибуты:", "Кошелёк владельца", "Аккаунт Getgems", "Телеграм", "Время транзакции:"],
-            "tg_util" : ["Купить на", "Смотреть на", "Коллекция на", "⚙️ Настроить для вашей группы/канала ⚙️", "Ты можешь поместить свою рекламу здесь"]
+            "tg_util" : ["Купить на", "Смотреть на", "Коллекция на", "⚙️ Настроить для вашей группы/канала ⚙️", "Ты можешь поместить свою рекламу здесь"],
+            "date_util" : ["назад", "месяцев", "дней", "часов", "минут", "секунд"]
         }
     }
 }

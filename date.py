@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta, timezone
 import time
+import json
 
 local_timezone = time.timezone
+translate = json.load(open('getgems.json', 'r', encoding='utf-8'))['translate']
 
 def get_tzinfo(offset_hours: int) -> timezone:
-    """Создает объект timezone с указанным смещением в часах."""
     return timezone(timedelta(hours=offset_hours))
 
 def now(offset_hours: int = 0) -> int:
@@ -24,13 +25,14 @@ def date_to_number(date_str: str, offset_hours: int = 0) -> int:
 def number_to_date(timestamp: int, offset_hours: int = 0) -> str:
     tzinfo = get_tzinfo(offset_hours)
     dt = datetime.fromtimestamp(timestamp, tz=tzinfo)
-    return dt.strftime('%Y-%m-%d %H:%M:%S')
+    return dt.strftime('%Y-%m-%d %H:%M:%S' + " " + tzinfo.tzname(dt))
 
-def format_remaining_time(target_time: int) -> str:
+def format_remaining_time(target_time: int, lang = "en") -> str:
     waste = target_time - now()
+    prefix = ""
     
     if waste < 0:
-        return ""
+        prefix = translate[lang]['date_util'][0]
 
     days = waste // (3600 * 24)
     hours, remainder = divmod(waste, 3600)
@@ -39,20 +41,12 @@ def format_remaining_time(target_time: int) -> str:
     # Определение формата вывода
     if days > 30:
         months = days // 30
-        return f"{months} мес."
+        return f"{months} {translate[lang]['date_util'][1]} {days} {translate[lang]['date_util'][2]} {prefix}"
     elif days > 1:
-        return f"{days} дн."
-    elif days == 1:
-        return f"1 дн. {hours} ч. {minutes} мин."
+        return f"{days} {translate[lang]['date_util'][2]} {hours} {translate[lang]['date_util'][3]} {prefix}"
     elif hours > 0:
-        return f"{hours} ч. {minutes} мин."
+        return f"{hours} {translate[lang]['date_util'][3]} {minutes} {translate[lang]['date_util'][4]} {prefix}"
     elif minutes > 0:
-        return f"{minutes} мин. {seconds} сек."
+        return f"{minutes} {translate[lang]['date_util'][4]} {seconds} {translate[lang]['date_util'][5]} {prefix}"
     else:
-        return f"{seconds} сек."
-
-# def number_to_relative_date(timestamp, timezone = timezone.utc):
-#     delta = timedelta(seconds=timestamp)
-    
-#     date_str = dt.strftime('%Y-%m-%d')
-#     return date_str
+        return f"{seconds} {seconds} {translate[lang]['date_util'][5]} {prefix}"

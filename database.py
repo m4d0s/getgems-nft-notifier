@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 import json
-from date_util import now, log_format_time
+from date import now, log_format_time
 
 logging.basicConfig(
     filename=f'logs/{log_format_time()}.log',
@@ -32,9 +32,11 @@ def get_last_time(db_path=db_path):
     return last_time[0]
   
 def enter_price(value, db_path=db_path):
+    if value is None:
+        return
+    
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
     for k, v in value.items():
         cursor.execute("""
         INSERT OR REPLACE INTO price (id, value, name) 
@@ -133,6 +135,18 @@ def update_senders_data(sender, db_path=db_path):
         SET collection_address = ?, telegram_id = ?, last_time = ?
         WHERE id = ?
     ''', (sender[0], sender[1], sender[2], sender[3]))
+    conn.commit()
+    
+    conn.close()
+    
+def insert_senders_data(sender, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO senders (collection_address, telegram_id, last_time, telegram_user, language)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (sender[0], sender[1], now(), sender[2], sender[3]))
     conn.commit()
     
     conn.close()
