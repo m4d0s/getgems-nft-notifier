@@ -26,7 +26,7 @@ json_data = json.load(open('getgems.json', 'r', encoding='utf-8'))
 api_url, queries, translate = json_data['api_url'], json_data['queries'], json_data['translate']
 max_retries = 5
 initial_sleep = 5
-max_concurrent_requests = 5
+max_concurrent_requests = 2
 semaphore = asyncio.Semaphore(max_concurrent_requests)
 
 #Enum variables for XItem classes
@@ -77,6 +77,7 @@ class NftStatusType(Enum):
 class MarketplaceType(Enum):
   Getgems = 0,
   Other = 1
+
 
 
 # XItem classes for better-serving of data
@@ -590,6 +591,7 @@ class NftItem:
       return f"NftItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
 
+
 # get-funcs to scratch data from Getgems GraphQL API
 async def get_user_info(session:aiohttp.ClientSession, user_address: str) -> UserItem:
     query = queries['get_user_info']
@@ -788,12 +790,15 @@ async def get_collection_info(session:aiohttp.ClientSession, collection_address:
     logging.info("Collection info: " + str(data))
     return CollectionItem(data)
 
+
+
 # other funcs
 async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: int = max_retries, sleep: int = initial_sleep) -> dict | None:
     error = None
     for i in range(tries + 1):
         if i > 0:
             logging.info(f"Retry to get_response number {i} after {sleep} seconds")
+            session = aiohttp.ClientSession()
         try:
             async with semaphore:  # Ограничение параллелизма
                 async with session.post(api_url, json=json_data) as response:

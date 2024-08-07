@@ -94,6 +94,40 @@ def get_senders_data_by_address(address, db_path=db_path):
     senders_data_list = list(senders_data)
     return senders_data_list
 
+def get_senders_data_by_id(id, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM senders WHERE telegram_id = ?", (id,))
+    senders_data = cursor.fetchone()
+    
+    conn.close()
+    
+    senders_data_list = list(senders_data)
+    return senders_data_list
+
+def return_chat_language(id, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT language FROM senders WHERE telegram_id = ? SORT BY last_time DESC", (id,))
+    senders_data = cursor.fetchone()
+    
+    conn.close()
+    
+    return senders_data[0]
+
+def is_setup_by_chat_id(id, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM senders WHERE telegram_id = ?", (id,))
+    senders_data = cursor.fetchone()
+    
+    conn.close()
+    
+    return True if senders_data else False
+
 def update_full_senders_data(updated_senders_data, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -135,6 +169,18 @@ def update_senders_data(sender, db_path=db_path):
         SET collection_address = ?, telegram_id = ?, last_time = ?
         WHERE id = ?
     ''', (sender[0], sender[1], sender[2], sender[3]))
+    conn.commit()
+    
+    conn.close()
+    
+def delete_senders_data(address, id, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        DELETE FROM senders
+        WHERE collection_address = ? AND telegram_id = ?
+    ''', (address, id))
     conn.commit()
     
     conn.close()
