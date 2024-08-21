@@ -1,6 +1,7 @@
 {
     "api_url": "https://api.getgems.io/graphql",
     "db_path": "sqlite.db",
+    
     "queries":{
         "nft_collection_history": "query HistoryCollectionSales($collectionAddress: String!, $first: Int!) {\n  historyCollectionNftItems(collectionAddress: $collectionAddress, first: $first) {\n    items {\n      address\n      collectionAddress\n      time\n      typeData {\n        ... on HistoryTypeMint {\n          type\n          historyType\n        }\n        ... on HistoryTypeTransfer {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n        ... on HistoryTypeCancelSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypeSold {\n          type\n          historyType\n          oldOwner\n          newOwner\n          price\n          rejectFromGlobalTop\n        }\n        ... on HistoryTypePutUpForSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypePutUpForAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeCancelAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeBurn {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n      }\n      nft {\n        address\n        name\n      }\n    }\n  }\n}",
     "get_sale_info":
@@ -12,6 +13,13 @@
     "get_collection_info": "query NftCollectionByAddress($address: String!) {\n  nftCollectionByAddress(address: $address) {\n    isApproved\n    name\n    socialLinks\n    isVerified\n    address\n    approximateHoldersCount\n    approximateItemsCount\n    coverImage {\n      image {\n        baseUrl\n      }\n      originalUrl\n    }\n    description\n    domain\n    hasRarityAttributes\n    id\n    image {\n      image {\n        baseUrl\n      }\n      originalUrl\n    }\n    isBadSalesHidden\n    isBlocked\n    isGetGemsDnsCollection\n    isRarityEnabled\n    isRarityValid\n    owner {\n      wallet\n      telegram {\n        userName\n        hasTelegram\n        canSendMessage\n      }\n      socialLinks {\n        url\n        type\n      }\n      permissions\n      notificationsState {\n        count\n      }\n      name\n      lang\n      isHiddenExist\n      isCollectionCreator\n      isBurn\n      isBanned\n      id\n      domain\n      description\n      cover\n      avatar\n    }\n    ownerAddress\n    priority\n    rawMetadata\n    royaltyParams {\n      royaltyAddress\n      royaltyBase\n      royaltyFactor\n    }\n  }\n}",
     "get_user_info" : "query UserByAddress($address: String!) {\n  userByAddress(address: $address) {\n    wallet\n    name\n    lang\n    telegram {\n      hasTelegram\n      userName\n    }\n    socialLinks {\n      type\n      url\n    }\n  }\n}",
     "get_nft_owner" : "query Owner($address: String!, $first: Int!) {\n  reactionsNft(address: $address, first: $first) {\n    nft {\n      owner {\n        wallet\n          name\n          lang\n          telegram {\n            hasTelegram\n            userName\n          }\n          socialLinks {\n            url\n            type\n          }\n      }\n    }\n  }\n}"
+    },
+
+    "local":{
+        "NotLoaded":"pic/notloaded.png",
+        "Success":"pic/success.png",
+        "Original":"pic/original.png",
+        "Error":"pic/error.png"
     },
 
     "translate":{

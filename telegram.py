@@ -13,13 +13,13 @@ from database import (
     delete_senders_data, get_senders_data_by_id, return_chat_language
 )
 from getgems import (
-    get_new_history, coinmarketcap_price, get_nft_info, get_collection_info, address_converter,
-    HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType
+    get_new_history, coinmarketcap_price, get_nft_info, get_collection_info, address_converter, short_address,
+    HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType, AddressType
 )
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.types import Message, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputFile
 from aiogram.utils import executor
 
 # Configure logging
@@ -30,6 +30,7 @@ logging.basicConfig(
 )
 logging.getLogger('asyncio').setLevel(logging.DEBUG)
 
+local = json.load(open('getgems.json', 'r', encoding='utf-8'))['local']
 translate = json.load(open('getgems.json', 'r', encoding='utf-8'))["translate"]
 
 # Bot setup
@@ -41,10 +42,10 @@ dp = Dispatcher(bot)
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
 senders_data = fetch_senders_data()
 price_ids = [11419, 28850, 825, 1027, 1]
-app_version = "0.4a"
+app_version = "0.5a"
 
 setup_message = Message()
-sender = [None, None, None, None]
+sender = [None, None, None, None, None]
 
 
 # Helpful functions
@@ -139,6 +140,8 @@ async def nft_history_notify(session: aiohttp.ClientSession, history_item: Histo
         if nft is None:
             logging.error(f"Failed to get NFT info: {history_item}")
             return
+        if nft.history is None:
+            nft.history = history_item
 
         if nft.history.type == HistoryType.Sold:
             logging.info(f'Sold: {nft.address} on collection {nft.collection.address} ({number_to_date(nft.history.time)})')
@@ -213,30 +216,28 @@ async def start_setup(message: types.Message):
         )
         sender[1] = message.chat.id
         logging.info(f"Setup message sent with ID: {setup_message.message_id}")
-    else:
+    elif not message.chat.type == types.ChatType.PRIVATE:
+        list_notifications(message)
         pass
-    #     await settings(message)
     
-@dp.message_handler(commands=["list_notifications"])
+@dp.message_handler(commands=["nftlist"])
 async def list_notifications(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
-        async with aiohttp.ClientSession() as session:
-            senders = await get_senders_data_by_id(message.chat.id)
-            text = f"<b>{translate[return_chat_language(message.chat.id)]['settings'][0]}</b>\n"
-            keyboard = InlineKeyboardMarkup(row_width=1)
-            for sender in senders:
-                keyboard.add(InlineKeyboardButton(f'{await get_collection_info(sender[0]).name} ({sender[5]})', 
-                                                  callback_data=f'setup_{sender[0]}'))
-            bot.send_message(chat_id=message.chat.id, 
-                             text=text, 
-                             reply_markup=keyboard,
-                             parse_mode=ParseMode.HTML)
+        senders = get_senders_data_by_id(message.chat.id)
+        text = f"<b>{translate[return_chat_language(message.chat.id)]['settings'][0]}</b>\n"
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        for sender in senders:
+            keyboard.add(InlineKeyboardButton(f'{short_address(sender[0])}', 
+                                                callback_data=f'setup_{sender[0]}'))
+        await bot.send_message(chat_id=message.chat.id, 
+                            text=text, 
+                            reply_markup=keyboard,
+                            parse_mode=ParseMode.HTML)
+        try :
             await message.delete()
-            
-@dp.callback_query_handler(lambda call: call.data == "list_notifications")
-async def list_notifications_call(query: types.CallbackQuery):
-    await list_notifications(query.message)
+        except Exception as e:
+            logging.error(f"Failed to delete the message: {e}")
 
 @dp.callback_query_handler(lambda query: query.data.startswith('setup_'))
 async def settings(query: types.CallbackQuery):
@@ -251,52 +252,72 @@ async def settings(query: types.CallbackQuery):
             text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][4]}</b>{collection.owner.link_user_text()}\n\n"
             text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][5]}</b>{collection.description}\n"
             keyboard = InlineKeyboardMarkup(row_width=2)
-            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][6]}", callback_data=f"edit_{query.data[6:]}"),
-                         InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][7]}", callback_data=f"delete_{query.data[6:]}"))
-            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data=f"list_notifications"))
-            await bot.edit_message_text(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, parse_mode=ParseMode.HTML)
-                
+            keyboard.add(
+                # InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][6]}", callback_data=f"edit_{query.data[6:]}"),
+                InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][7]}", callback_data=f"delete_{query.data[6:]}")
+                )
+            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data="list_notifications"))
+            await bot.edit_message_text(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, parse_mode=ParseMode.HTML)             
 
-@dp.message_handler(commands=["add_notification"])
+@dp.message_handler(commands=["nftadd"])
 async def add_notification(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
-        if len(args) != 2:
-            bot.send_message(message.chat.id, f"Input command again")
+        senders = get_senders_data_by_id(message.chat.id)
+        addresses = [address_converter(sender[0]) for sender in senders]
+        if len(args) != 1:
+            await bot.send_message(message.chat.id, "Input command again")
             return
-        sender = [args[1], message.from_user.id, args[0], message.chat.id]
-        async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=message.text)
-        if collection and address_converter(collection.address) == address_converter(message.text):
-            insert_senders_data(sender)
-            bot.send_message(message.chat.id, f"Notification for collection \"{collection.name}\" added")
-        else:
-            bot.send_message(message.chat.id, f"Collection not found, input command again")
-    else:
-        await message.delete()
+        if address_converter(args[0]) in addresses:
+            await bot.send_message(message.chat.id, f"Collection {args[0]} already added")
+            return
         
-@dp.message_handler(commands=["delete_notification"])
+        keyboard = InlineKeyboardMarkup(row_width=1)
+        for code in translate:
+            b = InlineKeyboardButton(text=translate[code]['Name'], 
+                                    callback_data=f"addnotif_{code}_{args[0]}")
+            keyboard.add(b)
+        await bot.send_message(message.chat.id, f"Choose language for notification on collection <b>{args[0]}</b>", reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    else:
+        args = message.text.split()[1:]
+        await bot.send_message(message.chat.id, f"Collection {args[0]} not found, input command again")
+        await message.delete()
+
+@dp.callback_query_handler(lambda call: call.data.startswith('addnotif_'))
+async def add_notification_call(query: types.CallbackQuery):
+    args = query.data.split('_')[1:]
+    await query.answer(f"Processing to add and verificate the collection ({args[1]}), please wait a few seconds...", show_alert=True)
+    async with aiohttp.ClientSession() as session:
+        collection = await get_collection_info(session=session, collection_address=args[1])
+    if collection and address_converter(collection.address) == address_converter(args[1]):
+        sender = [args[0], query.message.from_user.id, args[1], query.message.chat.id, " ".join(args[2:]), collection.name]
+        insert_senders_data(sender)
+        await bot.send_message(query.message.chat.id, f"Notification for collection <code>{args[1]}</code> added", parse_mode=ParseMode.HTML)
+        await add_notification(query.message)
+    else:
+        await bot.send_message(query.message.chat.id, f"Collection <code>{args[1]}</code> not found", parse_mode=ParseMode.HTML)
+        
+@dp.message_handler(commands=["nftdel"])
 async def delete_notification(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
+        senders = get_senders_data_by_id(message.chat.id)
+        addresses = [sender[0] for sender in senders]
         if len(args) != 1:
-            bot.send_message(message.chat.id, f"Input command again")
+            await bot.send_message(message.chat.id, f"Input command again")
+            return
+        if args[0] not in addresses:
+            await bot.send_message(message.chat.id, f"Collection <code>{args[0]}</code> not found", parse_mode=ParseMode.HTML)
             return
         delete_senders_data(args[0], message.chat.id)
         async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=message.text)
-        bot.send_message(message.chat.id, f"Notification for collection \"{collection.name}\" deleted")
+            collection = await get_collection_info(session=session, collection_address=args[0])
+            await bot.send_message(message.chat.id, f"Notification for collection <code>\"{collection.name}\"</code> deleted", parse_mode=ParseMode.HTML)
+            await message.delete()
     else:
         await message.delete()
-
-# @dp.message_handler(commands=["settings"])
-# async def settings(message: types.Message):
-#     def list_of_collections():
-#         async with aiohttp.ClientSession() as session:
-#             collections = awa
-#             return collections
     
 def language_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -321,12 +342,74 @@ async def handle_reply(message: types.Message):
     if collection and address_converter(collection.address) == address_converter(message.text):
         sender[0] = message.text
         sender[2] = message.from_user.id
+        sender[4] = collection.name
         insert_senders_data(sender)
         await message.reply(translate[sender[3]]["setup"][2])
     else:
         await message.reply(translate[sender[3]]["setup"][3])
         
 
+
+# just inline
+@dp.inline_handler()
+async def inline_link_preview(query: types.InlineQuery):
+    address = address_converter(query.query, format=AddressType.Bouncable)
+    if not address:
+        return
+    async with aiohttp.ClientSession() as session:
+        nft = asyncio.create_task(get_nft_info(session, address))
+        await asyncio.sleep(5)
+        if nft.done():
+            nft = nft.result()
+        else:
+            nft = None
+    if not nft:
+        link = f'https://getgems.io/'
+        title = 'Cannot load info about nft'
+        desc = 'try again later'
+        thumb = "https://cache.tonapi.io/imgproxy/LyP5sSl_-zzlYjxwIrizRjzuFPQt_2abAT9u4-0W52Q/rs:fill:200:200:1/g:no/aHR0cHM6Ly9nYXMxMTEuczMuYW1hem9uYXdzLmNvbS9pbWFnZXMvM2U3YzU1ZjYxODg3NDlmOGI0NjdiOTY5YzczZjA0NzcucG5n.webp" 
+        
+        inline_button = InlineKeyboardButton(text="Getgems", url=link)
+        inline_keyboard = InlineKeyboardMarkup().add(inline_button)
+        
+        result = types.InlineQuery
+    
+        result = types.InlineQueryResultArticle(
+                id='1',
+                title=title,
+                description=desc,
+                thumb_url=thumb,
+                reply_markup=inline_keyboard,
+                input_message_content=types.InputTextMessageContent(message_text="Failed to load NFT info"),
+            )
+        
+    else:
+        link = f'https://getgems.io/nft/{address}'
+        title = f'{nft.name} from {nft.collection.name}'
+        desc = f'{nft.description}'
+        thumb = nft.content.get_url()
+    
+        inline_button = InlineKeyboardButton(text="See on Getgems", url=link)
+        inline_keyboard = InlineKeyboardMarkup().add(inline_button)
+        
+        result = types.InlineQueryResultPhoto(
+            id='1',
+            photo_url=thumb,
+            thumb_url=thumb,
+            title=title,
+            description=desc,
+            reply_markup=inline_keyboard,
+            input_message_content=types.InputTextMessageContent(
+                message_text=nft.notify_text(),
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+        )    
+        
+    await query.answer([result], cache_time=1)
+    
+    
+    
 # just main
 async def main():
     async with aiohttp.ClientSession() as session:

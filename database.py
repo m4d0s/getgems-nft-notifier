@@ -87,11 +87,11 @@ def get_senders_data_by_address(address, db_path=db_path):
     cursor = conn.cursor()
     
     cursor.execute("SELECT * FROM senders WHERE collection_address = ?", (address,))
-    senders_data = cursor.fetchone()
+    senders_data = cursor.fetchall()
     
     conn.close()
     
-    senders_data_list = list(senders_data)
+    senders_data_list = [list(row) for row in senders_data]
     return senders_data_list
 
 def get_senders_data_by_id(id, db_path=db_path):
@@ -99,18 +99,18 @@ def get_senders_data_by_id(id, db_path=db_path):
     cursor = conn.cursor()
     
     cursor.execute("SELECT * FROM senders WHERE telegram_id = ?", (id,))
-    senders_data = cursor.fetchone()
+    senders_data = cursor.fetchall()
     
     conn.close()
     
-    senders_data_list = list(senders_data)
+    senders_data_list = [list(row) for row in senders_data]
     return senders_data_list
 
 def return_chat_language(id, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT language FROM senders WHERE telegram_id = ? SORT BY last_time DESC", (id,))
+    cursor.execute("SELECT language FROM senders WHERE telegram_id = ? ORDER BY last_time DESC", (id,))
     senders_data = cursor.fetchone()
     
     conn.close()
@@ -190,9 +190,20 @@ def insert_senders_data(sender, db_path=db_path):
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT INTO senders (collection_address, telegram_id, last_time, telegram_user, language)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (sender[0], sender[1], now(), sender[2], sender[3]))
+        INSERT INTO senders (collection_address, telegram_id, last_time, telegram_user, language, name)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (sender[0], sender[1], now(), sender[2], sender[3], sender[4]))
     conn.commit()
     
     conn.close()
+    
+def get_random_proxy(db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM proxy ORDER BY RANDOM() LIMIT 1")
+    proxy = cursor.fetchone()
+    
+    conn.close()
+    
+    return [x for x in proxy] if proxy else None
