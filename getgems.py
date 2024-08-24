@@ -1,25 +1,16 @@
 import requests
 import json
-import time
 import re
-import logging
 import asyncio
 import aiohttp
-import pytonapi
 from pytonapi import AsyncTonapi
 from enum import Enum
 from tonsdk.contract import Address
-from logging import log
-from database import get_price, update_senders_data, get_random_proxy
-from date import number_to_date, log_format_time, format_remaining_time, now
+from database import get_price, update_senders_data, get_random_proxy, get_logger
+from date import number_to_date, format_remaining_time, now
 from datetime import timezone
 
-# loggining config
-logging.basicConfig(
-  filename=f'logs/{log_format_time()}.log',
-  level=logging.INFO, 
-  format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logger = get_logger()
 
 # just some needed values
 json_data = json.load(open('getgems.json', 'r', encoding='utf-8'))
@@ -143,7 +134,7 @@ class SocialLinksItem:
         else:
           self.links.append([link['url'], self.extract_main_domain(link['url'])])
     else:
-      log(logging.ERROR, "Classification error in SocialLinksItem")
+      logger.error("Classification error in SocialLinksItem")
   def __repr__(self):
     return f"SocialLinks({self.links})"
   def extract_main_domain(self, url: str):
@@ -665,7 +656,7 @@ async def get_new_history(session:aiohttp.ClientSession, senders_data: tuple, TO
 
     senders_data[2] = last_time
     update_senders_data(senders_data)
-    logging.info(log_text)
+    logger.info(log_text)
     return all_items
 
 async def get_nft_owner(session:aiohttp.ClientSession, nft_address: str) -> UserItem:
@@ -804,7 +795,7 @@ async def get_nft_info(session:aiohttp.ClientSession,
     data['content']['notLoadedContent'] = notloadedcontent
     
     nft = NftItem(data)
-    logging.info(f"🖼 info: {nft}")
+    logger.info(f"NFT info: {nft}")
     
     return nft
 
@@ -818,7 +809,7 @@ async def get_collection_info(session:aiohttp.ClientSession, collection_address:
     if data is None:
         return None
     data = data['data']['nftCollectionByAddress']
-    logging.info("Collection info: " + str(data))
+    logger.info("Collection info: " + str(data))
     return CollectionItem(data)
 
 
@@ -828,7 +819,7 @@ async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: i
     error = None
     for i in range(tries + 1):
         if i > 0:
-            logging.info(f"Retry to get_response number {i} after {sleep} seconds")
+            logger.info(f"Retry to get_response number {i} after {sleep} seconds")
         try:
           async with aiohttp.ClientSession() as session:
             async with semaphore:  # Ограничение параллелизма
@@ -837,17 +828,17 @@ async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: i
                   response.raise_for_status()
                   data = await response.json()
                   if 'errors' in data:
-                      logging.error("Произошла ошибка:")
-                      logging.error(data['errors'])
+                      logger.error("Произошла ошибка:")
+                      logger.error(data['errors'])
                       return None
                   return data
         except (aiohttp.ClientError, aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
             await asyncio.sleep(sleep)
-            logging.error(f"Произошла ошибка: {e}. Следующая попытка через {sleep} сек.")
+            logger.error(f"Произошла ошибка: {e}. Следующая попытка через {sleep} сек.")
             error = e
             sleep *= 2  # Увеличиваем интервал ожидания (backoff strategy)
             continue
-    logging.error(f"Ошибка при выполнении запроса: {error}")
+    logger.error(f"Ошибка при выполнении запроса: {error}")
     return None
 
 async def fetch_data(json_data: dict) -> dict | None:
@@ -857,7 +848,7 @@ async def fetch_data(json_data: dict) -> dict | None:
 async def tonapi_get_data(key, address, tries=3, sleep=3) -> dict | None:
     for i in range(tries + 1):
         if i > 0:
-            logging.info(f"Retry to get_response number {i}")
+            logger.info(f"Retry to get_response number {i}")
         try:
             client = AsyncTonapi(key)
             nft = await client.nft.get_item_by_address(address)
@@ -866,7 +857,7 @@ async def tonapi_get_data(key, address, tries=3, sleep=3) -> dict | None:
                 raise Exception(f"tonapi_get_data: can't find item with address {address}")
             return nft
         except Exception as e:
-            logging.error(f"tonapi_get_data: {e}")
+            logger.error(f"tonapi_get_data: {e}")
             await asyncio.sleep(sleep)
     return None
 
@@ -882,7 +873,7 @@ def address_converter(address, format:AddressType = AddressType.Unbouncable) -> 
         elif format == AddressType.Raw:
             return addr.to_string(False, True, True)
     except Exception as e:
-        logging.error(f"Error converting address: {e}")
+        logger.error(f"Error converting address: {e}")
         return  
 
 def short_address(address) -> str:
@@ -910,20 +901,20 @@ def coinmarketcap_price(cmc_api, ids) -> float:
       try:
         name = data['data'][str(id)]['symbol']
         price = data['data'][str(id)]['quote']['USD']['price']
-        logging.info(f"The current price of {name} ({id}) in USD is: ${price:.2f}")
+        logger.info(f"The current price of {name} ({id}) in USD is: ${price:.2f}")
         prices[id] = [price, name]
       except KeyError:
-        logging.error(f"Data for id{id} not found in the response.")
+        logger.error(f"Data for id{id} not found in the response.")
         return None
     return prices
   else:
-    logging.error(f"Error: {response.status_code}, {response.text}")
+    logger.error(f"Error: {response.status_code}, {response.text}")
     return None
   
 def get_proxy():
   proxy = get_random_proxy()
   if proxy:
-    link = f'{proxy[4]}://{proxy[2]}:{proxy[3]}@{proxy[0]}:{proxy[1]}'  
-    logging.info(f"Using proxy: {link}")
+    link = proxy[0]  
+    logger.info(f"Using proxy: {link.split('@')[-1]}")
     return link
   return None

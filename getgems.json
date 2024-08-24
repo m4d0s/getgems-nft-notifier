@@ -2,6 +2,21 @@
     "api_url": "https://api.getgems.io/graphql",
     "db_path": "sqlite.db",
     
+    "snippets" : {
+        "bold": "<b>{text}</b>",
+        "italic": "<i>{text}</i>",
+        "code": "<code>{text}</code>",
+        "block": "<pre>{text}</pre>",
+        "code-block": "<pre><code class=\"language-{lang}\">{text}</code></pre>",
+        "spoiler" : "<tg-spoiler>{text}</tg-spoiler>",
+        "strike" : "<s>{text}</s>",
+        "link" : "<a href=\"{link}\">{text}</a>",
+        "mention": "<a href=\"tg://user?id={id}\">{text}</a>",
+        "emoji" : "<tg-emoji emoji-id=\"{id}\">{emoji}</tg-emoji>",
+        "quote" : "<blockquote>{text}</blockquote>",
+        "quoteV2": "<blockquote expandable>{text}</blockquote>"
+    },
+
     "queries":{
         "nft_collection_history": "query HistoryCollectionSales($collectionAddress: String!, $first: Int!) {\n  historyCollectionNftItems(collectionAddress: $collectionAddress, first: $first) {\n    items {\n      address\n      collectionAddress\n      time\n      typeData {\n        ... on HistoryTypeMint {\n          type\n          historyType\n        }\n        ... on HistoryTypeTransfer {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n        ... on HistoryTypeCancelSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypeSold {\n          type\n          historyType\n          oldOwner\n          newOwner\n          price\n          rejectFromGlobalTop\n        }\n        ... on HistoryTypePutUpForSale {\n          type\n          historyType\n          owner\n          price\n        }\n        ... on HistoryTypePutUpForAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeCancelAuction {\n          type\n          historyType\n          owner\n        }\n        ... on HistoryTypeBurn {\n          type\n          historyType\n          oldOwner\n          newOwner\n        }\n      }\n      nft {\n        address\n        name\n      }\n    }\n  }\n}",
     "get_sale_info":

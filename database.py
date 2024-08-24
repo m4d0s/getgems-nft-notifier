@@ -1,13 +1,43 @@
 import sqlite3
 import logging
 import json
+import os
 from date import now, log_format_time
 
-logging.basicConfig(
-    filename=f'logs/{log_format_time()}.log',
-    level=logging.INFO, 
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def get_logger(file_level=logging.INFO, base_level=logging.INFO):
+    # Создаем логгер
+    logger = logging.getLogger("logger")
+    logger.setLevel(base_level)  # Устанавливаем базовый уровень логирования
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Проверяем, есть ли уже обработчики, и если да, удаляем их
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    # Создаем каталог для логов, если он не существует
+    log_dir = 'logs'
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # Создаем обработчик для записи в файл
+    file_handler = logging.FileHandler(f'{log_dir}/{log_format_time()}.log')
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    # Создаем обработчик для вывода в консоль
+    console_handler = logging.StreamHandler()
+    console_lvl = logging.DEBUG
+    console_handler.setLevel(console_lvl)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    logger.debug("Logger setup sucessfull!\n\tBase log level: %s, Console log level: %s, File log level: %s", 
+                 base_level, console_lvl, file_level)
+
+    return logger
+
+logger = get_logger()
 
 db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
 
@@ -15,7 +45,7 @@ def enter_last_time(db_path=db_path, timestamp = now()):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("UPDATE config SET NOW = ? WHERE rowid = 1", (timestamp,))
+    cursor.execute("UPDATE config SET key = ? WHERE value = \"now\"", (timestamp,))
     conn.commit()
     
     conn.close()
@@ -24,13 +54,37 @@ def get_last_time(db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT NOW FROM config LIMIT 1")
+    cursor.execute("SELECT key FROM config WHERE value = \"now\"")
     last_time = cursor.fetchone()
     
     conn.close()
     
-    return last_time[0]
-  
+    return int(last_time[0])
+
+def enter_cache(user_id:int, keys:dict, db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    for k, v in keys.items():
+        v = str(v)
+        cursor.execute("""
+        INSERT OR REPLACE INTO cache (name, value, user_id) 
+        VALUES (?, ?, ?)
+        """, (k, v, user_id))
+    conn.commit()
+    
+    conn.close()
+    
+def get_cache(user_id:int, db_path=db_path) -> dict:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM cache WHERE user_id = ?", (user_id,))
+    cache = cursor.fetchall()
+    
+    conn.close()
+    
+    return {item[1]: item[2] for item in cache}
+
 def enter_price(value, db_path=db_path):
     if value is None:
         return
@@ -61,13 +115,15 @@ def fetch_config_data(db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM config LIMIT 1")
-    config_data = cursor.fetchone()
+    cursor.execute("SELECT * FROM config")
+    config_data = cursor.fetchall()
     
     conn.close()
     
-    config_data_list = list(config_data) if config_data else []
-    db_path = config_data_list[3]
+    config_data_list = {}
+    for i in range(len(config_data)):
+        config_data_list[config_data[i][0].lower()] = int(config_data[i][1]) if config_data[i][1].isdigit() else config_data[i][1]
+        
     return config_data_list
 
 def fetch_senders_data(db_path=db_path):
