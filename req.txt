@@ -1,12 +1,9 @@
 sqlite3
-pytonlib
 tonsdk
-pathlib
-TonTools
-pytonapi
+aiofiles
+aiohttp
+tonsdk
 aiogram
 tracemalloc
-re
-pycoingecko
 sched
 threading

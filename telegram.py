@@ -18,7 +18,6 @@ from getgems import (
 from responce import coinmarketcap_price
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, 
                                       MessageToEditNotFound, MessageCantBeDeleted, MessageCantBeEdited, UserDeactivated)
@@ -34,7 +33,6 @@ snippet = config.pop('snippets')
 # Bot setup
 config = fetch_config_data()
 bot = Bot(config['bot_api'])
-storage = MemoryStorage()
 dp = Dispatcher(bot)
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
