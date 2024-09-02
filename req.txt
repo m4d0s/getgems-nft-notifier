@@ -1,9 +1,4 @@
-sqlite3
-tonsdk
-aiofiles
-aiohttp
-tonsdk
-aiogram
-tracemalloc
-sched
-threading
+aiofiles==23.2.1
+aiohttp==3.8.4
+tonsdk==1.0.15
+aiogram==2.19
