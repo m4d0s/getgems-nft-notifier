@@ -4,6 +4,9 @@ import json
 import os
 from date import now, log_format_time
 
+db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
+
+#logger
 def get_logger(file_level=logging.INFO, base_level=logging.INFO):
     # Создаем логгер
     logger = logging.getLogger("logger")
@@ -39,7 +42,22 @@ def get_logger(file_level=logging.INFO, base_level=logging.INFO):
 
 logger = get_logger()
 
-db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
+
+#config
+def fetch_config_data(db_path=db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM config")
+    config_data = cursor.fetchall()
+    
+    conn.close()
+    
+    config_data_list = {}
+    for i in range(len(config_data)):
+        config_data_list[config_data[i][0].lower()] = int(config_data[i][1]) if config_data[i][1].isdigit() else config_data[i][1]
+        
+    return config_data_list
 
 def enter_last_time(db_path=db_path, timestamp = now()):
     conn = sqlite3.connect(db_path)
@@ -61,6 +79,9 @@ def get_last_time(db_path=db_path):
     
     return int(last_time[0])
 
+
+
+#cache
 def enter_cache(user_id:int, keys:dict, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -85,6 +106,10 @@ def get_cache(user_id:int, db_path=db_path) -> dict:
     
     return {item[1]: item[2] for item in cache}
 
+
+
+
+#price
 def enter_price(value, db_path=db_path):
     if value is None:
         return
@@ -111,57 +136,9 @@ def get_price(db_path=db_path, name="") -> dict:
     
     return {item[1]: item[2] for item in prices}
 
-def fetch_config_data(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM config")
-    config_data = cursor.fetchall()
-    
-    conn.close()
-    
-    config_data_list = {}
-    for i in range(len(config_data)):
-        config_data_list[config_data[i][0].lower()] = int(config_data[i][1]) if config_data[i][1].isdigit() else config_data[i][1]
-        
-    return config_data_list
 
-def fetch_senders_data(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM senders")
-    senders_data = cursor.fetchall()
-    
-    conn.close()
-    
-    senders_data_list = [list(row) for row in senders_data]
-    return senders_data_list
 
-def get_senders_data_by_address(address, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM senders WHERE collection_address = ?", (address,))
-    senders_data = cursor.fetchall()
-    
-    conn.close()
-    
-    senders_data_list = [list(row) for row in senders_data]
-    return senders_data_list
-
-def get_senders_data_by_id(id, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM senders WHERE telegram_id = ?", (id,))
-    senders_data = cursor.fetchall()
-    
-    conn.close()
-    
-    senders_data_list = [list(row) for row in senders_data]
-    return senders_data_list
-
+#setup
 def return_chat_language(id, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -184,20 +161,11 @@ def is_setup_by_chat_id(id, db_path=db_path):
     
     return True if senders_data else False
 
-def update_full_senders_data(updated_senders_data, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    for sender in updated_senders_data:
-        cursor.execute('''
-            UPDATE senders
-            SET collection_address = ?, telegram_id = ?, last_time = ?
-            WHERE id = ?
-        ''', (sender[0], sender[1], sender[2], sender[3]))
-    
-    conn.commit()
-    conn.close()
 
+
+
+
+#ads
 def get_ad(db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -216,20 +184,68 @@ def get_ad(db_path=db_path):
             return i
     return ad_list[0]
 
-def update_senders_data(sender, db_path=db_path):
+
+
+
+#senders
+def fetch_all_senders(db_path=db_path) -> list:
+    
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        UPDATE senders
-        SET collection_address = ?, telegram_id = ?, last_time = ?
-        WHERE id = ?
-    ''', (sender[0], sender[1], sender[2], sender[3]))
-    conn.commit()
+    cursor.execute("SELECT * FROM senders")
+    senders_data = cursor.fetchall()
     
     conn.close()
     
-def delete_senders_data(address, id, db_path=db_path):
+    senders_data_list = [dict(zip([description[0] for description in cursor.description], row)) 
+                         for row in senders_data]
+    return senders_data_list
+
+
+def get_sender_data(address:str = None, chat_id:int = None, db_path=db_path) -> list:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    if not address and not chat_id:
+        return [dict(zip([description[0] for description in cursor.description], None))]
+    
+    text = []
+    if address:
+        text.append(f"address = \"{address}\"")
+    if chat_id:
+        text.append(f"telegram_id = \"{chat_id}\"")
+        
+    cursor.execute(f"SELECT * FROM senders WHERE {' AND '.join(text)} ORDER BY last_time DESC")
+    senders_data = cursor.fetchall()
+    conn.close()
+    
+    senders_data_list = [dict(zip([description[0] for description in cursor.description], sender_data)) for sender_data in senders_data] if senders_data \
+        else [{}]
+    return senders_data_list
+
+def update_senders_data(updated_senders_data:list, db_path=db_path) -> None:
+    for send in updated_senders_data:
+        set_sender_data(send, db_path)
+
+def set_sender_data(sender: dict, db_path=db_path) -> int:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    sender['last_time'] = now()
+    
+    # Выполняем замену или вставку
+    cursor.execute(f"INSERT OR REPLACE INTO senders ({', '.join(sender.keys())}) VALUES ({', '.join(['?']*len(sender))})", (*sender.values(),))
+    
+    # Получаем id вставленной или обновленной записи
+    cursor.execute(f"SELECT id FROM senders WHERE {'AND '.join(f'{key} = ?' for key in sender.keys())}", (*sender.values(),))
+    row_id = cursor.fetchone()[0]
+    
+    conn.commit()
+    conn.close()
+    
+    return row_id
+
+    
+def delete_senders_data(address, id, db_path=db_path) -> None:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -240,26 +256,3 @@ def delete_senders_data(address, id, db_path=db_path):
     conn.commit()
     
     conn.close()
-    
-def insert_senders_data(sender, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO senders (collection_address, telegram_id, last_time, telegram_user, language, name)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (sender[0], sender[1], now(), sender[2], sender[3], sender[4]))
-    conn.commit()
-    
-    conn.close()
-    
-def get_random_proxy(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM proxy ORDER BY RANDOM() LIMIT 1")
-    proxy = cursor.fetchone()
-    
-    conn.close()
-    
-    return [x for x in proxy] if proxy else None

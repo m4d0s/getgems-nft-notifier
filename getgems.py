@@ -1,24 +1,22 @@
-import requests
 import json
 import re
 import asyncio
 import aiohttp
-from pytonapi import AsyncTonapi
 from enum import Enum
 from tonsdk.contract import Address
-from database import get_price, update_senders_data, get_random_proxy, get_logger
+from responce import get_responce
+from database import get_price, set_sender_data, get_logger
 from date import number_to_date, format_remaining_time, now
 from datetime import timezone
 
 logger = get_logger()
 
 # just some needed values
-json_data = json.load(open('getgems.json', 'r', encoding='utf-8'))
-api_url, queries, translate = json_data['api_url'], json_data['queries'], json_data['translate']
-max_retries = 5
-initial_sleep = 5
-max_concurrent_requests = 10
-semaphore = asyncio.Semaphore(max_concurrent_requests)
+config = json.load(open('getgems.json', 'r', encoding='utf-8'))
+api_url, queries = config.pop('api_url'), config.pop('queries')
+translate, snippet = config.pop('translate'), config.pop('snippets')
+
+
 
 #Enum variables for XItem classes
 class UserLinkType(Enum):
@@ -201,7 +199,7 @@ class AttributeItem:
   def __repr__(self):
     return f"AttributeItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
   def text(self):
-    t = f"  <b>{self.name}</b>: {self.value}"
+    t = f"\t{snippet['bold'].format(text=self.name)}: {self.value}"
     if self.max_count != -1:
       t += f" ({self.percent}%)"
     return t
@@ -315,11 +313,11 @@ class PriceItem:
     if value is not None:
       return value * price
   def full_text(self, lang = 'en') -> str:
-     text = [f"<b>{translate[lang]['SoldItem'][0]}</b> {self.price_text(self.price)}" if self.price > 0 else "",
-          f"  <b>{translate[lang]['SoldItem'][1]}</b> {self.price_text(self.market_fee)}" if self.market_fee > 0 else "",
-          f"  <b>{translate[lang]['SoldItem'][2]}</b> {self.price_text(self.royalty_fee)}" if self.royalty_fee > 0 else "",
-          f"  <b>{translate[lang]['SoldItem'][3]}</b> {self.price_text(self.network_fee)}" if self.network_fee > 0 else "",
-          f"<b>{translate[lang]['SoldItem'][4]}</b> {self.price_text(self.profit)}" if self.profit > 0 else ""]
+     text = [f"{snippet['bold'].format(text=translate[lang]['SoldItem'][0])} {self.price_text(self.price)}" if self.price > 0 else "",
+          f"\t{snippet['bold'].format(text=translate[lang]['SoldItem'][1])} {self.price_text(self.market_fee)}" if self.market_fee > 0 else "",
+          f"\t{snippet['bold'].format(text=translate[lang]['SoldItem'][2])} {self.price_text(self.royalty_fee)}" if self.royalty_fee > 0 else "",
+          f"\t{snippet['bold'].format(text=translate[lang]['SoldItem'][3])} {self.price_text(self.network_fee)}" if self.network_fee > 0 else "",
+          f"{snippet['bold'].format(text=translate[lang]['SoldItem'][4])} {self.price_text(self.profit)}" if self.profit > 0 else ""]
      clear = [t for t in text if t != ""]
      return '\n'.join(clear) 
   def format_number(self, number: float, dollar=False) -> str:
@@ -371,8 +369,8 @@ class SoldItem:
     
   def details(self, lang = "en", tz = timezone.utc):
     text = [self.price.full_text(lang = lang) + "\n",
-            f"<b>{translate[lang]['SoldItem'][5]}</b> {self.new.link_user_text()}",
-            f"<b>{translate[lang]['SoldItem'][6]}</b> {self.old.link_user_text()}"]
+            f"{snippet['bold'].format(text=translate[lang]['SoldItem'][5])} {self.new.link_user_text()}",
+            f"{snippet['bold'].format(text=translate[lang]['SoldItem'][6])} {self.old.link_user_text()}"]
     clear = [x for x in text if text != ""]
     return '\n'.join(clear) 
   def __repr__(self):
@@ -484,10 +482,10 @@ class AuctionItem:
   def details(self, lang = "en", tz = timezone.utc):
     text = [self.price.full_text(lang = lang) + "\n",
             f'{self.last_bid.user.link_user_text()} ({format_remaining_time(self.last_bid.time)})' if self.last_bid is not None else "",
-            f"<b>{translate[lang]['AuctionItem'][5]}</b> {self.max_bid.price_text(self.max_bid.price)}" if self.max_bid.price > 0 else "",
-            f"<b>{translate[lang]['AuctionItem'][6]}</b> {self.next_bid.price_text(self.next_bid.price)}" if self.next_bid.price > 0 else "",
-            f"<b>{translate[lang]['AuctionItem'][7]}</b> {self.next_bid.price_text(self.min_step)}" if self.min_step > 0 else "",
-            f"<b>{translate[lang]['AuctionItem'][8]}</b> {number_to_date(self.finish_at, tz)} ({format_remaining_time(self.finish_at)})"]
+            f"{snippet['bold'].format(text=translate[lang]['AuctionItem'][5])} {self.max_bid.price_text(self.max_bid.price)}" if self.max_bid.price > 0 else "",
+            f"{snippet['bold'].format(text=translate[lang]['AuctionItem'][6])} {self.next_bid.price_text(self.next_bid.price)}" if self.next_bid.price > 0 else "",
+            f"{snippet['bold'].format(text=translate[lang]['AuctionItem'][7])} {self.next_bid.price_text(self.min_step)}" if self.min_step > 0 else "",
+            f"{snippet['bold'].format(text=translate[lang]['AuctionItem'][8])} {number_to_date(self.finish_at, tz)} ({format_remaining_time(self.finish_at)})"]
     clear = [x for x in text if text != ""]
     return '\n'.join(clear) 
   def __repr__(self):
@@ -554,36 +552,36 @@ class NftItem:
       return self.content.get_url()
     
   def notify_text(self, lang="en", tz = timezone.utc):
-    header = f'<b>🖼 "{self.name}"</b>' if not self.history \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][0]}</b>' if self.history.type == HistoryType.PutUpForSale \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][1]}</b>' if self.history.type == HistoryType.Sold \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][2]}</b>' if self.history.type == HistoryType.PutUpForAuction \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][3]}</b>' if self.history.type == HistoryType.Mint \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][4]}</b>' if self.history.type == HistoryType.Burn \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][5]}</b>' if self.history.type == HistoryType.CancelSale \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][6]}</b>' if self.history.type == HistoryType.CancelAuction \
-            else f'<b>🖼 "{self.name}" {translate[lang]["NftItem"][7]}</b>' if self.history.type == HistoryType.Transfer \
-            else f'<b>🖼 "{self.name}"</b>' if self.history.type == HistoryType.NotForSale \
-            else f'<i><b>{translate[lang]["NftItem"][8]} "{self.name}" </b></i>'
+    header = f"🖼 {snippet['bold'].format(text=self.name)}" if not self.history \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][0]}') if self.history.type == HistoryType.PutUpForSale \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][1]}') if self.history.type == HistoryType.Sold \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][2]}') if self.history.type == HistoryType.PutUpForAuction \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][3]}') if self.history.type == HistoryType.Mint \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][4]}') if self.history.type == HistoryType.Burn \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][5]}') if self.history.type == HistoryType.CancelSale \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][6]}') if self.history.type == HistoryType.CancelAuction \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}" {translate[lang]["NftItem"][7]}') if self.history.type == HistoryType.Transfer \
+            else '🖼 ' + snippet['bold'].format(text=f'"{self.name}"') if self.history.type == HistoryType.NotForSale \
+            else '🖼 ' + snippet['bold'].format(text=snippet['italic'].format(text=f'{translate[lang]["NftItem"][8]} "{self.name}"'))
             
     body = "\n\n" + self.sale.details(tz = tz, lang = lang) if self.sale is not None else ""
     
-    unique = f"<b>{translate[lang]['NftItem'][10]}</b> {self.rarity}/{self.collection.items_count}" if self.collection.isRarity and self.rarity is not None else ""
-    likes = f"<b>{translate[lang]['NftItem'][11]}</b> {self.likes} ❤️" if self.likes is not None else ""
+    unique = f"{snippet['bold'].format(text=translate[lang]['NftItem'][10])} {self.rarity}/{self.collection.items_count}" if self.collection.isRarity and self.rarity is not None else ""
+    likes = f"{snippet['bold'].format(text=translate[lang]['NftItem'][11])} {self.likes} ❤️" if self.likes is not None else ""
     
     attribs = [unique, likes]
     if len(self.attributes) != 0:
-      attribs.append(f"<b>{translate[lang]['NftItem'][12]} ({len(self.attributes)})</b>")
+      attribs.append(snippet['bold'].format(text=f"{translate[lang]['NftItem'][12]} ({len(self.attributes)})"))
       for i in self.attributes:
         attribs.append(i.text())
     attribs = "\n\n" + '\n'.join([x for x in attribs if x != ""]) if len(attribs) != 0 else ""
     
-    footer = ("\n\n" + f"<a href=\"{self.owner.get_link(UserLinkType.Tonviewer)}\">{translate[lang]['NftItem'][13]}</a>" +
-              f" | <a href=\"{self.owner.get_link(UserLinkType.Getgems)}\">{translate[lang]['NftItem'][14]}</a>")
+    footer = ("\n\n" + snippet['link'].format(text=translate[lang]['NftItem'][13], link=self.owner.get_link(UserLinkType.Tonviewer)) +
+              f" | {snippet['link'].format(text=translate[lang]['NftItem'][14], link=self.owner.get_link(UserLinkType.Getgems))}")
     
     if self.owner.telegram != "":
-      footer += f" | <a href=\"{self.owner.get_link(UserLinkType.Telegram)}\">{translate[lang]['NftItem'][15]}</a>"
-    tx_time = "\n" + f"<b>{translate[lang]['NftItem'][16]}</b> {number_to_date(self.history.time, tz)}" if self.history is not None else ""
+      footer += f" | {snippet['link'].format(text=translate[lang]['NftItem'][15], link=self.owner.get_link(UserLinkType.Telegram))}"
+    tx_time = "\n" + f"{snippet['bold'].format(text=translate[lang]['NftItem'][16])} {number_to_date(self.history.time, tz)}" if self.history is not None else ""
     
     return f'{header}{body}{attribs}{footer}{tx_time}'
   def __repr__(self):
@@ -618,16 +616,16 @@ async def get_user_info(session:aiohttp.ClientSession, user_address: str) -> Use
             }
     return UserItem(data['data']['userByAddress'])
   
-async def get_new_history(session:aiohttp.ClientSession, senders_data: tuple, TON_API, first=10) -> list[HistoryItem]:
+async def get_new_history(session:aiohttp.ClientSession, senders_data: dict, TON_API, first=10) -> list[HistoryItem]:
     query = queries['nft_collection_history']
     variables = {
-        "collectionAddress": senders_data[0],
+        "collectionAddress": senders_data['collection_address'],
         "first": first,
     }
 
     all_items = []
-    last_time = senders_data[2]
-    log_text = f"Items in history (last timestamp: {senders_data[2]}):\n"
+    last_time = senders_data['last_time']
+    log_text = f"Items in history (last timestamp: {senders_data['last_time']}):\n"
     data = await get_responce(session, json_data={'query': query, 'variables': variables})
     if data is None:
         return []
@@ -648,14 +646,14 @@ async def get_new_history(session:aiohttp.ClientSession, senders_data: tuple, TO
         if 'currency' not in item[0]['typeData']:
             item[0]['typeData']['currency'] = 'TON'
 
-        if item[0]['time'] > senders_data[2]:
+        if item[0]['time'] > senders_data['last_time']:
             history = HistoryItem(item[0])
             all_items.append(history)
-            last_time = senders_data[2]
+            last_time = senders_data['last_time']
             log_text += str(history) + "\n"
 
-    senders_data[2] = last_time
-    update_senders_data(senders_data)
+    senders_data['last_time'] = last_time
+    set_sender_data(senders_data)
     logger.info(log_text)
     return all_items
 
@@ -671,105 +669,75 @@ async def get_nft_owner(session:aiohttp.ClientSession, nft_address: str) -> User
         return None
     return UserItem(data['data']['reactionsNft']['nft']['owner'])
 
-async def get_sale_info(session:aiohttp.ClientSession, history, first=1):
+async def get_sale_info(session: aiohttp.ClientSession, history: HistoryItem|str, first=1):
     query_native = queries['get_sale_info']['native']
     query_extend = queries['get_sale_info']['extend']
     
-    if history is str and address_converter(history):
-      data = {
-        "time": now(),
-        "typedata":{
-          "historyType": "NotForSale"
-        },
-        "nft":{
-          "name":"",
-          "address":address_converter(history, AddressType.Bouncable),
-        },
-        "collectionAddress": ""
-      }
-      history = HistoryItem(data)
-    else:
-      return
-    
-    variables = {
-        "address": history.address,
-        "first": first
-    }
-    
-    typeofsale = None
-    sale = None
-    nftstatus = NftStatusType.NotForSale
-    currency = history.sold.currency if history.sold is not None else "TON"
-    
+    if isinstance(history, str) and address_converter(history):
+        history = HistoryItem({
+            "time": now(),
+            "typedata": {"historyType": "NotForSale"},
+            "nft": {
+                "name": "",
+                "address": address_converter(history, AddressType.Bouncable),
+            },
+            "collectionAddress": ""
+        })
+
+    variables = {"address": history.address, "first": first}
+    currency = history.sold.currency if history.sold else "TON"
+
     owner_task = asyncio.create_task(get_nft_owner(session, history.address))
-    responce_native_task = asyncio.create_task(get_responce(session, json_data={'query': query_native, 'variables': variables}))
+    response_native_task = asyncio.create_task(get_responce(session, json_data={'query': query_native, 'variables': variables}))
 
-    owner = await owner_task
-    responce_native_data = await responce_native_task
-    native_data = responce_native_data['data']['reactionsNft']['nft']['sale']
+    owner, response_native_data = await asyncio.gather(owner_task, response_native_task)
+    native_data = response_native_data['data']['reactionsNft']['nft']['sale']
 
-    if native_data is not None and len(native_data) != 0:
-        if native_data['__typename'] == 'NftSaleFixPrice':
-            typeofsale = MarketplaceType.Getgems
-            nftstatus = NftStatusType.ForSale
-            native_data['nftOwnerAddressUser'] = owner
-            native_data['type'] = typeofsale
-            native_data['currency'] = currency
-            native_data['status'] = nftstatus
-            native_data['address'] = history.address
-            sale = SaleItem(native_data)
-        elif native_data['__typename'] == 'NftSaleAuction':
-            typeofsale = MarketplaceType.Other
-            nftstatus = NftStatusType.ForAuction
-            native_data['type'] = typeofsale
-            native_data['status'] = nftstatus
-            native_data['currency'] = currency
-            native_data['nftOwnerAddressUser'] = owner
-            native_data['address'] = history.address
-            if 'lastBidUser' in native_data and native_data['lastBidUser'] is not None:
-                native_data['lastBidUser'] = await get_user_info(session, native_data['lastBidUser']['wallet'])
-                native_data['bid'] = BidItem({'lastBidAddress': native_data['lastBidUser'], 'lastBidAt': native_data['lastBidAt']}) if 'lastBidUser' in native_data and native_data['lastBidUser'] is not None else None
-            else:
-                native_data['bid'] = None
-            sale = AuctionItem(native_data)
-    else:
-        responce_extended_task = asyncio.create_task(get_responce(session, json_data={'query': query_extend, 'variables': variables}))
-        responce_extended_data = await responce_extended_task
-        extended_data = responce_extended_data['data']['reactionsNft']['nft']['sale']
-        if extended_data is not None and len(extended_data) != 0:
-            if extended_data['__typename'] == 'NftSaleFixPriceDisintar':
-                typeofsale = MarketplaceType.Getgems
-                nftstatus = NftStatusType.ForSale
-                extended_data['type'] = typeofsale
-                extended_data['currency'] = currency
-                extended_data['status'] = nftstatus
-                extended_data['nftOwnerAddressUser'] = owner
-                extended_data['address'] = history.address
-                sale = SaleItem(extended_data)
-            elif extended_data['__typename'] == 'TelemintAuction':
-                typeofsale = MarketplaceType.Other
-                nftstatus = NftStatusType.ForAuction
-                extended_data['type'] = typeofsale
-                extended_data['status'] = nftstatus
-                extended_data['currency'] = currency
-                extended_data['nftOwnerAddressUser'] = owner
-                extended_data['address'] = history.address
-                if 'lastBidUser' in extended_data and extended_data['lastBidUser'] is not None:
-                    extended_data['lastBidUser'] = await get_user_info(session, extended_data['lastBidUser']['wallet'])
-                    extended_data['bid'] = BidItem({'lastBidAddress': extended_data['lastBidUser'], 'lastBidAt': extended_data['lastBidAt']}) if 'lastBidUser' in extended_data and extended_data['lastBidUser'] is not None else None
-                else:
-                    extended_data['bid'] = None
-                sale = AuctionItem(extended_data)
-        else:
-            if history.sold is not None:
-                sale = history.sold
+    if native_data:
+        return process_sale_data(native_data, owner, history, currency)
 
-    return [typeofsale, nftstatus, sale, history]
+    response_extended_data = await get_responce(session, json_data={'query': query_extend, 'variables': variables})
+    extended_data = response_extended_data['data']['reactionsNft']['nft']['sale']
+
+    if extended_data:
+        return process_sale_data(extended_data, owner, history, currency)
+
+    return [None, NftStatusType.NotForSale, history.sold if history.sold else None, history]
+
+
+async def process_sale_data(data, owner, history, currency):
+    sale = None
+    if data['__typename'] in ['NftSaleFixPrice', 'NftSaleFixPriceDisintar']:
+        sale = SaleItem({
+            **data,
+            "type": MarketplaceType.Getgems,
+            "status": NftStatusType.ForSale,
+            "currency": currency,
+            "nftOwnerAddressUser": owner,
+            "address": history.address
+        })
+    elif data['__typename'] in ['NftSaleAuction', 'TelemintAuction']:
+        bid = None
+        if data.get('lastBidUser'):
+          with aiohttp.ClientSession() as session:
+            last_bid_user = await get_user_info(session, data['lastBidUser']['wallet'])
+          bid = BidItem({'lastBidAddress': last_bid_user, 'lastBidAt': data['lastBidAt']})
+        sale = AuctionItem({
+            **data,
+            "type": MarketplaceType.Other,
+            "status": NftStatusType.ForAuction,
+            "currency": currency,
+            "nftOwnerAddressUser": owner,
+            "address": history.address,
+            "bid": bid
+        })
+    return [data['type'], data['status'], sale, history]
+
 
 async def get_nft_info(session:aiohttp.ClientSession, 
                        history: HistoryItem|str, 
                        first=1, width=1000, height=1000, 
-                       notloadedcontent=json_data['local']['NotLoaded'], proxy=True) -> NftItem:
+                       notloadedcontent=config['local']['NotLoaded']) -> NftItem:
   
     query = queries['get_nft_info']
     json_data = {
@@ -815,51 +783,6 @@ async def get_collection_info(session:aiohttp.ClientSession, collection_address:
 
 
 # other funcs
-async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: int = max_retries, sleep: int = initial_sleep, proxy=True) -> dict | None:
-    error = None
-    for i in range(tries + 1):
-        if i > 0:
-            logger.info(f"Retry to get_response number {i} after {sleep} seconds")
-        try:
-          async with aiohttp.ClientSession() as session:
-            async with semaphore:  # Ограничение параллелизма
-              proxy = get_proxy() if proxy else None
-              async with session.post(api_url, json=json_data, proxy=proxy) as response:
-                  response.raise_for_status()
-                  data = await response.json()
-                  if 'errors' in data:
-                      logger.error("Произошла ошибка:")
-                      logger.error(data['errors'])
-                      return None
-                  return data
-        except (aiohttp.ClientError, aiohttp.ClientResponseError, asyncio.TimeoutError) as e:
-            await asyncio.sleep(sleep)
-            logger.error(f"Произошла ошибка: {e}. Следующая попытка через {sleep} сек.")
-            error = e
-            sleep *= 2  # Увеличиваем интервал ожидания (backoff strategy)
-            continue
-    logger.error(f"Ошибка при выполнении запроса: {error}")
-    return None
-
-async def fetch_data(json_data: dict) -> dict | None:
-    async with aiohttp.ClientSession() as session:
-        return await get_responce(session, json_data)
-  
-async def tonapi_get_data(key, address, tries=3, sleep=3) -> dict | None:
-    for i in range(tries + 1):
-        if i > 0:
-            logger.info(f"Retry to get_response number {i}")
-        try:
-            client = AsyncTonapi(key)
-            nft = await client.nft.get_item_by_address(address)
-            await client.close()
-            if nft is None:
-                raise Exception(f"tonapi_get_data: can't find item with address {address}")
-            return nft
-        except Exception as e:
-            logger.error(f"tonapi_get_data: {e}")
-            await asyncio.sleep(sleep)
-    return None
 
 def address_converter(address, format:AddressType = AddressType.Unbouncable) -> str:
     try:
@@ -879,42 +802,4 @@ def address_converter(address, format:AddressType = AddressType.Unbouncable) -> 
 def short_address(address) -> str:
   return f"{address_converter(address)[:4]}...{address_converter(address)[-4:]}"
 
-def coinmarketcap_price(cmc_api, ids) -> float:
-  apiurl = 'https://pro-api.coinmarketcap.com'
-  resp = "/v1/cryptocurrency/quotes/latest"
-  url = apiurl + resp
-  parameters = {
-      'id': ','.join([str(i) for i in ids]),
-      'convert': 'USD'
-  }
-  headers = {
-    'Accepts': 'application/json',
-    'X-CMC_PRO_API_KEY': cmc_api,
-  }
-  
-  response = requests.get(url, headers=headers, params=parameters)
-  
-  if response.status_code == 200:
-    prices = {}
-    data = response.json()
-    for id in ids:
-      try:
-        name = data['data'][str(id)]['symbol']
-        price = data['data'][str(id)]['quote']['USD']['price']
-        logger.info(f"The current price of {name} ({id}) in USD is: ${price:.2f}")
-        prices[id] = [price, name]
-      except KeyError:
-        logger.error(f"Data for id{id} not found in the response.")
-        return None
-    return prices
-  else:
-    logger.error(f"Error: {response.status_code}, {response.text}")
-    return None
-  
-def get_proxy():
-  proxy = get_random_proxy()
-  if proxy:
-    link = proxy[0]  
-    logger.info(f"Using proxy: {link.split('@')[-1]}")
-    return link
-  return None
+

@@ -7,23 +7,21 @@ import aiohttp
 from typing import Tuple
 
 from date import now, number_to_date
-from database import (
-    fetch_senders_data, fetch_config_data, get_last_time, get_ad, is_setup_by_chat_id,
-    enter_last_time, enter_price, update_full_senders_data, insert_senders_data,
-    delete_senders_data, get_senders_data_by_id, return_chat_language, get_logger,
-    set_cache, get_cache
-)
+from database import (fetch_config_data, get_last_time, get_ad, is_setup_by_chat_id,
+                    enter_last_time, enter_price, update_senders_data, 
+                    delete_senders_data, return_chat_language, get_logger,
+                    enter_cache, get_cache, get_sender_data, fetch_all_senders, set_sender_data)
 from getgems import (
-    get_new_history, coinmarketcap_price, get_nft_info, get_collection_info, address_converter, short_address,
+    get_new_history, get_nft_info, get_collection_info, address_converter, short_address,
     HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType, AddressType
 )
+from responce import coinmarketcap_price
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.types import Message, ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, InvalidQueryID, ChatNotFound,
-                                      BotBlocked, MessageIsTooLong, MessageToEditNotFound, MessageCantBeDeleted,
-                                      BadRequest, MessageCantBeEdited, UserDeactivated)
+from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, 
+                                      MessageToEditNotFound, MessageCantBeDeleted, MessageCantBeEdited, UserDeactivated)
 
 
 logger = get_logger()
@@ -41,9 +39,7 @@ dp = Dispatcher(bot)
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
 price_ids = [11419, 28850, 825, 1027, 1]
-app_version = "0.7a"
-
-sender = [None, None, None, None, None]
+app_version = "0.8a"
 
 class FilesType:
     NONE = 0
@@ -59,7 +55,7 @@ def extract_main_domain(url: str):
     return match.group(1) if match else None
 
 async def enter_cmc_price():
-    price = coinmarketcap_price(config['cmc_api'], price_ids)
+    price = await coinmarketcap_price(config['cmc_api'], price_ids)
     enter_price(price)
 
 def html_back_escape(text:str) -> str:
@@ -152,7 +148,32 @@ async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = 
         logger.error(f'Error sending message in chat {chat_id}: {error_text}')
         return
   
+async def send_error_message(chat_id:int, message:str, e:Exception = None, only_dev:bool = False) -> types.Message:
+    cache = await get_cache(chat_id) ##cache
+    keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton("Close", callback_data='delete_message'))
+    
+    cache['process'] = True
+    if cache['error']:
+        await try_to_delete(chat_id, cache['error'])
+    if cache['welcome']:
+        await try_to_delete(chat_id, cache['welcome'])
+        cache['welcome'] = None
+        
+    if e is not None:
+        err_t = f'Error: {e}' if str(e) else 'Error: No details'
+        logger.error(traceback.format_stack()[-2].split('\n')[0].strip() + f'\t{err_t}')
+    if only_dev:
+        ERROR_MESS = await new_message(text=message, chat_id=config['dev'], keyboard=keyboard)
+    else:
+        ERROR_MESS = await new_message(text=message, chat_id=chat_id, keyboard=keyboard)
+    
+    cache['error'] = ERROR_MESS.message_id
+    await enter_cache(chat_id, cache) ##write
+    return ERROR_MESS
 
+@dp.callback_query_handler(lambda c: c.data == 'delete_message')
+async def delete_message(call: types.CallbackQuery):
+    await try_to_delete(call.message.chat.id, call.message.message_id)
 
 
 
@@ -229,35 +250,54 @@ async def nft_history_notify(session: aiohttp.ClientSession, history_item: Histo
     except Exception as e:
         logger.error(f"Error in nft_history_notify: {e}")
 
-async def prepare_notify(session: aiohttp.ClientSession, TON_API=config['ton_api'], first=10):
+async def prepare_notify(session: aiohttp.ClientSession, first=10):
     count = 0
     history_items = []
-    senders_data = fetch_senders_data()
+    senders_data = fetch_all_senders()
 
-    async def gather_history_for_sender(sender: Tuple, index: int) -> None:
+    async def gather_history_for_sender(sender: dict) -> None:
         nonlocal history_items
-        history = await get_new_history(session, sender, TON_API, first)
-        for i in history:
-            history_items.append((i, sender[1], sender[2], index, sender[5], sender[6]))
+        cache = get_cache(sender['telegram_user'])
+        try:
+            chat = await bot.get_chat(sender['telegram_id'])
+        except Exception as e:
+            chat = None
+        if not chat:
+            delete_senders_data(sender['collection_address'], sender['telegram_id'])
+            await new_message(text="You delete me from chat? please let me back", chat_id=sender['telegram_user'])
+            return
+        elif chat.permissions.can_send_messages is False and not cache.get(f'{sender["telegram_id"]}_error'):
+            # delete_senders_data(sender['collection_address'], sender['telegram_id'])
+            MESS = await new_message(text="You dont give me permission to send messages", chat_id=sender['telegram_user'])
+            cache[f'{sender["telegram_id"]}_error'] = MESS.message_id
+            return
+        history = await get_new_history(session, sender, config['ton_api'], first)
+            
+        for h in history:
+            history_items.append((h, sender))
 
-    tasks = [gather_history_for_sender(sender, index) for index, sender in enumerate(senders_data)]
+    tasks = [gather_history_for_sender(sender) for sender in senders_data]
     await asyncio.gather(*tasks)
 
     async def process_history_item(history_item: Tuple) -> None:
         nonlocal count
-        history, chat_id, _, sender_index, lang, tz = history_item
+        history, sender = history_item
         if history.type in elligible:
             if history.time == 0:
-                senders_data[sender_index][2] = now()
+                senders_data[sender['index']]['last_time'] = now()
             else:
-                await nft_history_notify(session=session, history_item=history, chat_id=chat_id, lang=lang, tz=tz)
+                await nft_history_notify(session=session, 
+                                         history_item=history, 
+                                         chat_id=sender['telegram_id'], 
+                                         lang=sender['language'], 
+                                         tz=sender['timezone'])
                 count += 1
-                senders_data[sender_index][2] = history.time
+                senders_data[sender['index']]['last_time'] = history.time
 
     sorted_history_items = sorted(history_items, key=lambda x: int(x[0].time) + x[0].type.value, reverse=True)
     await asyncio.gather(*(process_history_item(item) for item in sorted_history_items))
 
-    update_full_senders_data(senders_data)
+    update_senders_data(senders_data)
     enter_last_time()
 
     return count
@@ -278,13 +318,18 @@ async def start_setup(message: types.Message):
         
         logger.info(f"Bot added to a new chat: {message.chat.id}")
         try:
-            await message.delete()
+            await try_to_delete(message.chat.id, message.message_id)
         except Exception as e:
             logger.error(f"Failed to delete the message: {e}")
-        setup_message = await new_message (chat_id=message.chat.id, text="Hi! Please, choose your language", keyboard=language_keyboard())
+        senders = get_sender_data(chat_id=message.chat.id)
+        sender = senders[0]
+        sender['telegram_id'] = message.chat.id
+        id = set_sender_data(sender)
+        setup_message = await new_message (chat_id=message.chat.id, text="Hi! Please, choose your language", keyboard=language_keyboard(id))
         messid = setup_message.message_id
-        sender[1] = message.chat.id
-        set_cache(message.chat.id, {"setup": messid})
+
+
+        enter_cache(message.chat.id, {"setup": messid})
         logger.info(f"Setup message sent with ID: {messid}")
     elif not message.chat.type == types.ChatType.PRIVATE:
         list_notifications(message)
@@ -294,12 +339,12 @@ async def start_setup(message: types.Message):
 async def list_notifications(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
-        senders = get_senders_data_by_id(message.chat.id)
+        senders = get_sender_data(chat_id=message.chat.id)
         text = f"<b>{translate[return_chat_language(message.chat.id)]['settings'][0]}</b>\n"
         keyboard = InlineKeyboardMarkup(row_width=1)
         for sender in senders:
-            keyboard.add(InlineKeyboardButton(f'{short_address(sender[0])}', 
-                                                callback_data=f'setup_{sender[0]}'))
+            keyboard.add(InlineKeyboardButton(f"{short_address(sender['collection_address'])}", 
+                                                callback_data=f"setup_{sender['collection_address']}"))
         await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard)
         
         try :
@@ -332,8 +377,8 @@ async def add_notification(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
-        senders = get_senders_data_by_id(message.chat.id)
-        addresses = [address_converter(sender[0]) for sender in senders]
+        senders = get_sender_data(chat_id=message.chat.id)
+        addresses = [address_converter(sender['collection_address']) for sender in senders]
         if len(args) != 1:
             await new_message(text="Input command again", chat_id=message.chat.id)
 
@@ -361,8 +406,13 @@ async def add_notification_call(query: types.CallbackQuery):
     async with aiohttp.ClientSession() as session:
         collection = await get_collection_info(session=session, collection_address=args[1])
     if collection and address_converter(collection.address) == address_converter(args[1]):
-        sender = [args[0], query.message.from_user.id, args[1], query.message.chat.id, " ".join(args[2:]), collection.name]
-        insert_senders_data(sender)
+        sender = get_sender_data(chat_id=query.message.chat.id, collection_address=args[1])[0]
+        sender['collection_address'] = args[1]
+        sender['telegram_id'] = query.message.chat.id
+        sender['telegram_user'] = query.from_user.id
+        sender['name'] = collection.name
+        sender['language'] = args[0]
+        set_sender_data(sender)
         text = f"Notification for collection <code>{args[1]}</code> added"
         await new_message(text=text, chat_id=query.message.chat.id)
         await add_notification(query.message)
@@ -375,8 +425,8 @@ async def delete_notification(message: types.Message):
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
-        senders = get_senders_data_by_id(message.chat.id)
-        addresses = [sender[0] for sender in senders]
+        senders = get_sender_data(chat_id=message.chat.id)
+        addresses = [sender['collection_address'] for sender in senders]
         if len(args) != 1:
             await new_message(text="Input command again", chat_id=message.chat.id)
             return
@@ -392,35 +442,40 @@ async def delete_notification(message: types.Message):
 
     await try_to_delete(message.chat.id, message.message_id)
     
-def language_keyboard():
+def language_keyboard(id:int):
     keyboard = InlineKeyboardMarkup(row_width=1)
     for language in translate:
-        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=language))
+        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}_{id}'))
     return keyboard
 
-@dp.callback_query_handler(lambda call: call.data in translate)
+@dp.callback_query_handler(lambda call: call.data.startswith('lang_'))
 async def on_language_selected(call: CallbackQuery):
-    language_selected = call.data
+    args = call.data.split('_')
+    sender = get_sender_data(chat_id=call.message.chat.id, collection_address=args[2])[0]
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(call.message.chat.id)]
-    sender[3] = language_selected
+    sender['language'] = args[1]
+    sender['collection_address'] = args[2]
+    sender['telegram_id'] = call.message.chat.id
+    sender['telegram_user'] = call.from_user.id
     if call.from_user.id in can_setup:
-        await try_to_edit(translate[language_selected]["setup"][0], call.message.chat.id, call.message.message_id)
+        await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
     else:
-        await call.answer(translate[language_selected]["setup"][1], show_alert=True)
+        await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
         
 @dp.message_handler(lambda message: message.reply_to_message)
 async def handle_reply(message: types.Message):
     cache = get_cache(message.from_user.id)
+    sender = get_sender_data(chat_id=message.from_user.id)[0]
     if cache.get("setup") != message.message_id:
         await message.reply(translate[sender[3]]["setup"][1])
         return
     async with aiohttp.ClientSession() as session:
         collection = await get_collection_info(session=session, collection_address=message.text)
     if collection and address_converter(collection.address) == address_converter(message.text):
-        sender[0] = message.text
-        sender[2] = message.from_user.id
-        sender[4] = collection.name
-        insert_senders_data(sender)
+        sender["name"] = message.text
+        sender['telegram_user'] = message.from_user.id
+        sender['collection_address'] = collection.name
+        set_sender_data(sender)
         await message.reply(translate[sender[3]]["setup"][2])
     else:
         await message.reply(translate[sender[3]]["setup"][3])
