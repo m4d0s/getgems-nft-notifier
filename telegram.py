@@ -16,6 +16,7 @@ from getgems import (
     HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType, AddressType
 )
 from responce import coinmarketcap_price
+from proxy import prepare
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -260,6 +261,7 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
             chat = await bot.get_chat(sender['telegram_id'])
         except Exception as e:
             chat = None
+            logger.error(f"Error in prepare_notify: {e}")
         if not chat:
             delete_senders_data(sender['collection_address'], sender['telegram_id'])
             await new_message(text="You delete me from chat? please let me back", chat_id=sender['telegram_user'])
@@ -273,6 +275,8 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
             
         for h in history:
             history_items.append((h, sender))
+            
+    senders_data = [sender for sender in senders_data if all(sender[x] is not None for x in sender)]
 
     tasks = [gather_history_for_sender(sender) for sender in senders_data]
     await asyncio.gather(*tasks)
@@ -543,7 +547,7 @@ async def inline_link_preview(query: types.InlineQuery):
 # just main
 async def main():
     logger.info(f"\n\n----- Start of new session, version: {app_version}, now timestamp: {get_last_time()}, date: {number_to_date(get_last_time())} -----")
-
+    await prepare()
     asyncio.create_task(run_periodically(300, enter_cmc_price))
     asyncio.create_task(run_periodically(5, history_notify))
 

@@ -237,7 +237,8 @@ def set_sender_data(sender: dict, db_path=db_path) -> int:
     
     # Получаем id вставленной или обновленной записи
     cursor.execute(f"SELECT id FROM senders WHERE {'AND '.join(f'{key} = ?' for key in sender.keys())}", (*sender.values(),))
-    row_id = cursor.fetchone()[0]
+    row_id = cursor.fetchone()
+    row_id = row_id[0] if row_id else None 
     
     conn.commit()
     conn.close()

@@ -39,7 +39,7 @@ class ContentPlaceType(Enum):
   Local = 0,
   Remote = 1
   def type_by_link(self, link):
-    if 'https://' in link or 'http://' in link:
+    if any(x in link for x in ['https://', 'http://', 'ipfs://']):
       return ContentPlaceType.Remote
     return ContentPlaceType.Local
 

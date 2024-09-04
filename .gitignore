@@ -164,6 +164,7 @@ sqlite.db
 bot.log
 tempCodeRunnerFile.py
 launch.json
+*.db-journal
 #test.py
 
 #vs
