@@ -67,7 +67,8 @@ async def manage_ipv6_address(ip_addr, interface = 'ens3', only_del = False):
         await asyncio.sleep(2)
 
 def ensure_sysctl_config(file_path, configs):
-    """ Убедитесь, что все конфигурационные строки присутствуют в файле sysctl """
+    if not platform.system() == 'Linux':
+        return
     try:
         # Чтение существующего файла конфигурации
         with open(file_path, 'r') as file:
@@ -125,7 +126,8 @@ async def prepare():
     # Обеспечить наличие конфигураций
     ensure_sysctl_config(sysctl_conf_file, sysctl_configs)
     clear_ipv6_interface()
-    tasks = [asyncio.create_task(generate_ipv6(ipv6_mask)) for _ in range(ipv6_count)]
-    while any(not t.done for t in tasks):
-        logger.info(f'Addresses added: {len([t.done for t in tasks])}/{ipv6_count}')
-        await asyncio.sleep(1)
+    if ipv6_mask:
+        tasks = [asyncio.create_task(generate_ipv6(ipv6_mask)) for _ in range(ipv6_count)]
+        while any(not t.done() for t in tasks):
+            logger.info(f'Addresses added: {len([t.done for t in tasks])}/{ipv6_count}')
+            await asyncio.sleep(1)

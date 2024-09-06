@@ -159,7 +159,7 @@ def is_setup_by_chat_id(id, db_path=db_path):
     
     conn.close()
     
-    return True if senders_data else False
+    return True if senders_data and all(item is not None for _, item in enumerate(senders_data)) else False
 
 
 
@@ -203,17 +203,19 @@ def fetch_all_senders(db_path=db_path) -> list:
     return senders_data_list
 
 
-def get_sender_data(address:str = None, chat_id:int = None, db_path=db_path) -> list:
+def get_sender_data(address:str = None, chat_id:int = None, id=None, db_path=db_path) -> list:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    if not address and not chat_id:
-        return [dict(zip([description[0] for description in cursor.description], None))]
+    if all([item is None for item in [address, chat_id, id]]):
+        return [{}]
     
     text = []
     if address:
-        text.append(f"address = \"{address}\"")
+        text.append(f"collection_address = \"{address}\"")
     if chat_id:
         text.append(f"telegram_id = \"{chat_id}\"")
+    if id:
+        text.append(f"id = \"{id}\"")
         
     cursor.execute(f"SELECT * FROM senders WHERE {' AND '.join(text)} ORDER BY last_time DESC")
     senders_data = cursor.fetchall()

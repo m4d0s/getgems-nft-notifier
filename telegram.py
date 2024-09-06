@@ -311,8 +311,16 @@ async def history_notify(counter=0):
         logger.info(f"Notification process ended, total notifications: {count}, now timestamp {get_last_time()} ({number_to_date(get_last_time())})")
  
  
+ 
+ 
         
 # Setup functions
+def language_keyboard(id:int):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for language in translate:
+        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}_{id}'))
+    return keyboard
+
 @dp.message_handler(commands=["start"])
 async def start_setup(message: types.Message):
     if not(message.chat.type == types.ChatType.PRIVATE or \
@@ -331,11 +339,50 @@ async def start_setup(message: types.Message):
         messid = setup_message.message_id
 
 
-        enter_cache(message.chat.id, {"setup": messid})
+        enter_cache(message.chat.id, {"setup": messid, 'sender': id})
         logger.info(f"Setup message sent with ID: {messid}")
     elif not message.chat.type == types.ChatType.PRIVATE:
-        list_notifications(message)
+        await list_notifications(message)
         pass
+    
+@dp.callback_query_handler(lambda call: call.data.startswith('lang_'))
+async def on_language_selected(call: CallbackQuery):
+    cache = get_cache(call.from_user.id)
+    args = call.data.split('_')
+    if cache.get("sender") is None:
+        sender = get_sender_data(chat_id=call.message.chat.id, address=args[2])[0]
+    else:
+        sender = get_sender_data(id=cache.get('sender'))[0]
+    can_setup = [admin.user.id for admin in await bot.get_chat_administrators(call.message.chat.id)]
+    sender['language'] = args[1]
+    sender['collection_address'] = args[2]
+    sender['telegram_id'] = call.message.chat.id
+    sender['telegram_user'] = call.from_user.id
+    sender_id = set_sender_data(sender)
+    enter_cache(user_id=call.from_user.id, keys={'sender': sender_id})
+    if call.from_user.id in can_setup:
+        await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
+    else:
+        await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
+        
+@dp.message_handler(lambda message: message.reply_to_message and any(translate[x]["setup"][0] for x in translate))
+async def handle_reply(message: types.Message):
+    cache = get_cache(message.from_user.id)
+    sender = get_sender_data(id=cache.get('sender'))[0]
+    user = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
+    if user.status != "creator" and user.status != "administrator":
+        await message.reply(translate[sender['language']]["setup"][1])
+        return
+    if address_converter(message.text):
+        async with aiohttp.ClientSession() as session:
+            collection = await get_collection_info(session=session, collection_address=message.text)
+            sender["name"] = collection.name
+            sender['telegram_user'] = message.from_user.id
+            sender['collection_address'] = message.text
+            set_sender_data(sender)
+            await message.reply(translate[sender['language']]["setup"][2])
+    else:
+        await message.reply(translate[sender['language']]["setup"][3])
     
 @dp.message_handler(commands=["nftlist"])
 async def list_notifications(message: types.Message):
@@ -444,43 +491,10 @@ async def delete_notification(message: types.Message):
 
     await try_to_delete(message.chat.id, message.message_id)
     
-def language_keyboard(id:int):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    for language in translate:
-        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}_{id}'))
-    return keyboard
 
-@dp.callback_query_handler(lambda call: call.data.startswith('lang_'))
-async def on_language_selected(call: CallbackQuery):
-    args = call.data.split('_')
-    sender = get_sender_data(chat_id=call.message.chat.id, collection_address=args[2])[0]
-    can_setup = [admin.user.id for admin in await bot.get_chat_administrators(call.message.chat.id)]
-    sender['language'] = args[1]
-    sender['collection_address'] = args[2]
-    sender['telegram_id'] = call.message.chat.id
-    sender['telegram_user'] = call.from_user.id
-    if call.from_user.id in can_setup:
-        await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
-    else:
-        await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
-        
-@dp.message_handler(lambda message: message.reply_to_message)
-async def handle_reply(message: types.Message):
-    cache = get_cache(message.from_user.id)
-    sender = get_sender_data(chat_id=message.from_user.id)[0]
-    if cache.get("setup") != message.message_id:
-        await message.reply(translate[sender[3]]["setup"][1])
-        return
-    async with aiohttp.ClientSession() as session:
-        collection = await get_collection_info(session=session, collection_address=message.text)
-    if collection and address_converter(collection.address) == address_converter(message.text):
-        sender["name"] = message.text
-        sender['telegram_user'] = message.from_user.id
-        sender['collection_address'] = collection.name
-        set_sender_data(sender)
-        await message.reply(translate[sender[3]]["setup"][2])
-    else:
-        await message.reply(translate[sender[3]]["setup"][3])
+
+
+
         
 
 
