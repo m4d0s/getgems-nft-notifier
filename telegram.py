@@ -51,7 +51,7 @@ class FilesType:
 
 # Helpful functions
 def can_setup_bot(message:types.Message) -> bool:
-    user = bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
+    user = asyncio.get_event_loop().run_until_complete(bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id))
     return user.status in ['creator', 'administrator']
 
 def to_bot_or_not(message:types.Message, command:str = None) -> bool:
@@ -546,66 +546,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# @dp.message_handler(lambda message: is_command(message, 'add_notification'))
-# async def add_notification(message: types.Message):
-#     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
-#     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
-#         args = message.text.split()[1:]
-#         senders = get_sender_data(chat_id=message.chat.id)
-#         addresses = [address_converter(sender['collection_address']) for sender in senders]
-#         if len(args) != 1:
-#             await new_message(text="Input command again", chat_id=message.chat.id)
-
-#         if address_converter(args[0]) in addresses:
-#             await new_message(text="Collection already added", chat_id=message.chat.id)
-#             return
-        
-#         keyboard = InlineKeyboardMarkup(row_width=1)
-#         for code in translate:
-#             b = InlineKeyboardButton(text=translate[code]['Name'], 
-#                                     callback_data=f"addnotif_{code}_{args[0]}")
-#             keyboard.add(b)
-#         text = f"Choose language for notification on collection <b>{args[0]}</b>"
-#         await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard)
-#     else:
-#         args = message.text.split()[1:]
-#         text = f"Collection {args[0]} not found, input command again"
-#         await new_message(text="Input command again", chat_id=message.chat.id)
-#         await try_to_delete(message.chat.id, message.message_id)
-
-# @dp.callback_query_handler(lambda call: call.data.startswith('addnotif_'))
-# async def add_notification_call(query: types.CallbackQuery):
-#     args = query.data.split('_')[1:]
-#     await query.answer(f"Processing to add and verificate the collection ({args[1]}), please wait a few seconds...", show_alert=True)
-#     async with aiohttp.ClientSession() as session:
-#         collection = await get_collection_info(session=session, collection_address=args[1])
-#     if collection and address_converter(collection.address) == address_converter(args[1]):
-#         sender = get_sender_data(chat_id=query.message.chat.id, collection_address=args[1])[0]
-#         sender['collection_address'] = args[1]
-#         sender['telegram_id'] = query.message.chat.id
-#         sender['telegram_user'] = query.from_user.id
-#         sender['name'] = collection.name
-#         sender['language'] = args[0]
-#         set_sender_data(sender)
-#         text = f"Notification for collection <code>{args[1]}</code> added"
-#         await new_message(text=text, chat_id=query.message.chat.id)
-#         await add_notification(query.message)
-#     else:
-#         text = f"Collection <code>{args[1]}</code> not found"
-#         await new_message(text=text, chat_id=query.message.chat.id)
