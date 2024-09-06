@@ -34,6 +34,7 @@ snippet = config.pop('snippets')
 # Bot setup
 config = fetch_config_data()
 bot = Bot(config['bot_api'])
+bot_info = asyncio.get_event_loop().run_until_complete(bot.get_me())
 dp = Dispatcher(bot)
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
@@ -50,7 +51,7 @@ class FilesType:
 
 # Helpful functions
 def to_bot_or_not(message:types.Message) -> bool:
-    return message.text.startswith(f'/{message.get_command(pure=True)}@{bot.username}') or message.text == f'/{message.get_command(pure=True)}'
+    return message.text.startswith(f'/{message.get_command(pure=True)}@{bot_info.username}') or message.text == f'/{message.get_command(pure=True)}'
 
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
