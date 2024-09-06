@@ -67,29 +67,48 @@ async def manage_ipv6_address(ip_addr, interface = 'ens3', only_del = False):
         await asyncio.sleep(2)
 
 def ensure_sysctl_config(file_path, configs):
-    if not platform.system() == 'Linux':
+    if platform.system() != 'Linux':
         return
+
     try:
-        # Чтение существующего файла конфигурации
+        # Read the existing configuration file
+        already = {}
         with open(file_path, 'r') as file:
-            existing_lines = file.read()
-        
-        # Открываем файл в режиме добавления
-        with open(file_path, 'a') as file:
-            for key, value in configs.items():
-                # Формируем строку конфигурации
-                config_line = f"{key} = {value}\n"
-                # Проверяем наличие строки в файле
-                if config_line not in existing_lines:
-                    logger.info(f"Adding missing configuration: {config_line.strip()}")
+            existing_lines = file.readlines()
+            for line in existing_lines:
+                # Skip comments and empty lines
+                stripped_line = line.strip()
+                if stripped_line.startswith('#') or not stripped_line:
+                    continue
+                
+                # Safely split lines by '=', handling cases with comments
+                if '=' in stripped_line:
+                    key, value = stripped_line.split('=', 1)
+                    already[key.strip()] = value.split('#', 1)[0].strip()  # Split off any comments after '#'
+
+        # Update or add missing configurations
+        modified = False
+        for key, value in configs.items():
+            if key not in already or already[key] != value:
+                already[key] = value
+                modified = True
+
+        # If modifications were made, write back to the file
+        if modified:
+            with open(file_path, 'w') as file:
+                for key, value in already.items():
+                    config_line = f"{key} = {value}\n"
                     file.write(config_line)
-                    
-        # Применение изменений
-        os.system("sysctl -p")
-        logger.info("Configuration applied successfully.")
+                    logger.info(f"Updating or adding configuration: {config_line.strip()}")
+
+            # Apply the new configurations
+            os.system("sysctl -p")
+            logger.info("Configuration applied successfully.")
+        else:
+            logger.info("No configuration changes needed.")
     
     except IOError as e:
-        logger.info(f"Error reading or writing the file: {e}")
+        logger.error(f"Error reading or writing the file: {e}")
 
 def clear_ipv6_interface(interface='ens3', mask=128):
     try:
@@ -102,8 +121,9 @@ def clear_ipv6_interface(interface='ens3', mask=128):
         
         for ip in ipv6_addresses:
             if ip:
-                logger.info(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
+                logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
                 subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
+        logger.info('Удаление IPv6 адресов завершено.')
     
     except Exception as e:
         logger.info(f"Произошла ошибка: {e}")
