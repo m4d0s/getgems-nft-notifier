@@ -516,7 +516,7 @@ async def help_note(message: types.Message):
     if not to_bot_or_not(message):
         return
     keyboard = quit_keyboard(message.chat.id)
-    await new_message(text=translate[lang]['help'], chat_id=message.chat.id, keyboard=keyboard)
+    await new_message(text=translate[lang]['help_note'], chat_id=message.chat.id, keyboard=keyboard)
 
 
         
