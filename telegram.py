@@ -8,8 +8,8 @@ from typing import Tuple
 
 from date import now, number_to_date
 from database import (fetch_config_data, get_last_time, get_ad, is_setup_by_chat_id,
-                    enter_last_time, enter_price, update_senders_data, 
-                    delete_senders_data, return_chat_language, get_logger,
+                    enter_last_time, enter_price, update_senders_data, return_chat_language,
+                    delete_senders_data,  get_logger,
                     enter_cache, get_cache, get_sender_data, fetch_all_senders, set_sender_data)
 from getgems import (
     get_new_history, get_nft_info, get_collection_info, address_converter, short_address,
@@ -47,7 +47,11 @@ class FilesType:
     DOCUMENT = 3
 
 
+
 # Helpful functions
+def to_bot_or_not(message:types.Message) -> bool:
+    return message.text.startswith(f'/{message.get_command(pure=True)}@{bot.username}') or message.text == f'/{message.get_command(pure=True)}'
+
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
     match = domain_regex.search(url)
@@ -149,7 +153,7 @@ async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = 
   
 async def send_error_message(chat_id:int, message:str, e:Exception = None, only_dev:bool = False) -> types.Message:
     cache = await get_cache(chat_id) ##cache
-    keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton("Close", callback_data='delete_message'))
+    keyboard = quit_keyboard(chat_id)
     
     cache['process'] = True
     if cache['error']:
@@ -321,8 +325,16 @@ def language_keyboard(id:int):
         keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}_{id}'))
     return keyboard
 
-@dp.message_handler(commands=["start"])
+def quit_keyboard(chat_id:int):
+    lang = return_chat_language(chat_id)
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
+    return keyboard
+
+@dp.message_handler(commands=["start"], commands_ignore_caption=True)
 async def start_setup(message: types.Message):
+    if not to_bot_or_not(message):
+        return
     if not(message.chat.type == types.ChatType.PRIVATE or \
            is_setup_by_chat_id(message.chat.id)):
         
@@ -384,8 +396,10 @@ async def handle_reply(message: types.Message):
     else:
         await message.reply(translate[sender['language']]["setup"][3])
     
-@dp.message_handler(commands=["nftlist"])
+@dp.message_handler(commands=["list_notification"], commands_ignore_caption=True)
 async def list_notifications(message: types.Message):
+    if not to_bot_or_not(message):
+        return
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         senders = get_sender_data(chat_id=message.chat.id)
@@ -421,8 +435,10 @@ async def settings(query: types.CallbackQuery):
             keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data="list_notifications"))
             await try_to_edit(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, keyboard=keyboard)      
 
-@dp.message_handler(commands=["nftadd"])
+@dp.message_handler(commands=["add_notification"], commands_ignore_caption=True)
 async def add_notification(message: types.Message):
+    if not to_bot_or_not(message):
+        return
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
@@ -469,8 +485,10 @@ async def add_notification_call(query: types.CallbackQuery):
         text = f"Collection <code>{args[1]}</code> not found"
         await new_message(text=text, chat_id=query.message.chat.id)
         
-@dp.message_handler(commands=["nftdel"])
+@dp.message_handler(commands=["remove_notification"], commands_ignore_caption=True)
 async def delete_notification(message: types.Message):
+    if not to_bot_or_not(message):
+        return
     can_setup = [admin.user.id for admin in await bot.get_chat_administrators(message.chat.id)]
     if not(message.chat.type == types.ChatType.PRIVATE or message.from_user.id in can_setup):
         args = message.text.split()[1:]
@@ -491,8 +509,13 @@ async def delete_notification(message: types.Message):
 
     await try_to_delete(message.chat.id, message.message_id)
     
-
-
+@dp.message_handler(commands=["help"], commands_ignore_caption=True)
+async def help_note(message: types.Message):
+    lang = return_chat_language(message.chat.id)
+    if not to_bot_or_not(message):
+        return
+    keyboard = quit_keyboard(message.chat.id)
+    await new_message(text=translate[lang]['help'], chat_id=message.chat.id, keyboard=keyboard)
 
 
         
