@@ -1,4 +1,4 @@
 aiofiles==23.2.1
-aiohttp==3.10.5
+aiohttp>=3.8.0,<3.9.0
 tonsdk==1.0.15
 aiogram==2.19
