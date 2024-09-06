@@ -50,11 +50,18 @@ class FilesType:
 
 
 # Helpful functions
-def to_bot_or_not(message:types.Message) -> bool:
-    return message.text.startswith(f'/{message.get_command(pure=True)}@{bot_info.username}') or message.text == f'/{message.get_command(pure=True)}'
+def to_bot_or_not(message:types.Message, command:str = None) -> bool:
+    if not command:
+        command = message.get_command(pure=True)
+        if not command:
+            return None
+    return message.text.startswith(f'/{command}@{bot_info.username}') \
+        or message.text == f'/{command}' and '@' not in message.text
 
 def is_command(message:types.Message, command:str) -> bool:
-    return message.text.startswith('/help') and to_bot_or_not(message)
+    is_this_command = message.text.startswith(f'/{command}')
+    is_this_to_bot = to_bot_or_not(message)
+    return all([is_this_command, is_this_to_bot])
 
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
