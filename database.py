@@ -5,6 +5,7 @@ import os
 from date import now, log_format_time
 
 db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
+translate_default = [t for t in json.load(open('getgems.json', 'r', encoding='utf-8'))["translate"]][0] or "en"
 
 #logger
 def get_logger(file_level=logging.INFO, base_level=logging.INFO):
@@ -86,7 +87,7 @@ def enter_cache(user_id:int, keys:dict, db_path=db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     for k, v in keys.items():
-        v = str(v)
+        v = str(v) if v is not None else None
         cursor.execute("""
         INSERT OR REPLACE INTO cache (name, value, user_id) 
         VALUES (?, ?, ?)
@@ -103,8 +104,16 @@ def get_cache(user_id:int, db_path=db_path) -> dict:
     cache = cursor.fetchall()
     
     conn.close()
-    
-    return {item[1]: item[2] for item in cache}
+    return_dict = {}
+    for item in cache:
+        i = None
+        if item[2] is None:
+            i = None
+        elif item[2].replace('-', '').isdigit():
+            i = int(item[2])
+        return_dict[item[1]] = i
+        
+    return return_dict
 
 
 
@@ -125,7 +134,7 @@ def enter_price(value, db_path=db_path):
     
     conn.close()
     
-def get_price(db_path=db_path, name="") -> dict:
+def get_price(db_path=db_path) -> dict:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -148,7 +157,7 @@ def return_chat_language(id, db_path=db_path):
     
     conn.close()
     
-    return senders_data[0]
+    return senders_data[0] or translate_default if senders_data else translate_default
 
 def is_setup_by_chat_id(id, db_path=db_path):
     conn = sqlite3.connect(db_path)
@@ -202,60 +211,137 @@ def fetch_all_senders(db_path=db_path) -> list:
                          for row in senders_data]
     return senders_data_list
 
-
-def get_sender_data(address:str = None, chat_id:int = None, id=None, db_path=db_path) -> list:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    if all([item is None for item in [address, chat_id, id]]):
-        return [{}]
-    
-    text = []
-    if address:
-        text.append(f"collection_address = \"{address}\"")
-    if chat_id:
-        text.append(f"telegram_id = \"{chat_id}\"")
-    if id:
-        text.append(f"id = \"{id}\"")
-        
-    cursor.execute(f"SELECT * FROM senders WHERE {' AND '.join(text)} ORDER BY last_time DESC")
-    senders_data = cursor.fetchall()
-    conn.close()
-    
-    senders_data_list = [dict(zip([description[0] for description in cursor.description], sender_data)) for sender_data in senders_data] if senders_data \
-        else [{}]
-    return senders_data_list
-
 def update_senders_data(updated_senders_data:list, db_path=db_path) -> None:
     for send in updated_senders_data:
         set_sender_data(send, db_path)
 
-def set_sender_data(sender: dict, db_path=db_path) -> int:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    sender['last_time'] = now()
+def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path, new = False) -> list[dict]:
+    query = "SELECT * FROM senders"
+    conditions = []
+    params = []
+    empty_dict = None
     
-    # Выполняем замену или вставку
-    cursor.execute(f"INSERT OR REPLACE INTO senders ({', '.join(sender.keys())}) VALUES ({', '.join(['?']*len(sender))})", (*sender.values(),))
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM senders LIMIT 1")
+        empty_dict = {description[0]: None for description in cursor.description}
+    empty_dict['last_time'] = now()
+    empty_dict['timezone'] = 0
     
-    # Получаем id вставленной или обновленной записи
-    cursor.execute(f"SELECT id FROM senders WHERE {'AND '.join(f'{key} = ?' for key in sender.keys())}", (*sender.values(),))
-    row_id = cursor.fetchone()
-    row_id = row_id[0] if row_id else None 
-    
-    conn.commit()
-    conn.close()
-    
-    return row_id
+    if new:
+        return [empty_dict]
 
+    # Строим список условий и параметров
+    if address:
+        conditions.append("collection_address = ?")
+        params.append(address)
+    if chat_id:
+        conditions.append("telegram_id = ?")
+        params.append(chat_id)
+    if id:
+        conditions.append("id = ?")
+        params.append(id)
+
+    # Добавляем условия к запросу, если они есть
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    else:
+        return [empty_dict]
     
-def delete_senders_data(address, id, db_path=db_path) -> None:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    query += " ORDER BY last_time DESC"
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Выполняем запрос
+            cursor.execute(query, params)
+            senders_data = cursor.fetchall()
+
+            # Создаем пустой словарь на случай отсутствия данных
+
+
+            # Преобразуем результат запроса в список словарей
+            senders_data_list = [
+                dict(zip([description[0] for description in cursor.description], sender_data))
+                for sender_data in senders_data
+            ] if senders_data else [empty_dict]
+
+            return senders_data_list
+
+    except sqlite3.Error as e:
+        logger.error(f"An error occurred: {e}")
+        return [empty_dict]
+
+def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int = None) -> int:
+    sender['last_time'] = now()
+    sender['timezone'] = tz
     
-    cursor.execute('''
-        DELETE FROM senders
-        WHERE collection_address = ? AND telegram_id = ?
-    ''', (address, id))
-    conn.commit()
+    # Удаляем id из словаря, если он есть
+    id = id or sender.pop('id', -1)
     
-    conn.close()
+    try:
+        # Открываем соединение с базой данных и создаем курсор
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            
+            if id:
+                # Если id существует, выполняем UPDATE
+                cursor.execute(
+                    f"UPDATE senders SET {', '.join(f'{key} = ?' for key in sender.keys())} WHERE id = ?",
+                    (*sender.values(), id)
+                )
+                conn.commit()
+                return id
+            else:
+                # Вставляем новую запись, если id не указан
+                cursor.execute(
+                    f"INSERT INTO senders ({', '.join(sender.keys())}) VALUES ({', '.join(['?'] * len(sender))})",
+                    (*sender.values(),)
+                )
+                conn.commit()
+
+                # Получаем id вставленной записи
+                cursor.execute("SELECT id FROM senders WHERE rowid = ?", (cursor.lastrowid,))
+                row = cursor.fetchone()
+                return row[0] if row else -1
+    
+    except sqlite3.Error as e:
+        logger.error(f"An error occurred: {e}")
+        return -1
+
+
+def delete_senders_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path) -> None:
+    # Ensure that at least one of the parameters is provided to avoid accidental mass deletion
+    if not any([address, chat_id, id]):
+        logger.error("At least one parameter (address, chat_id, id) must be provided.")
+        return
+    
+    # Construct the query and the parameters
+    conditions = []
+    params = []
+    query = "DELETE FROM senders"
+    
+    if address:
+        conditions.append("collection_address = ?")
+        params.append(address)
+    if chat_id:
+        conditions.append("telegram_id = ?")
+        params.append(chat_id)
+    if id:
+        conditions.append("id = ?")
+        params.append(id)
+
+    # Only add WHERE clause if there are conditions
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    # Use context managers for better resource handling
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            conn.commit()
+    except sqlite3.Error as e:
+        # Log or raise error for further handling
+        logger.error(f"Database error occurred: {e}")

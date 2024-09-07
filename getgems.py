@@ -800,6 +800,6 @@ def address_converter(address, format:AddressType = AddressType.Unbouncable) -> 
         return  
 
 def short_address(address) -> str:
-  return f"{address_converter(address)[:4]}...{address_converter(address)[-4:]}"
+  return f"{address_converter(address)[:4]}...{address_converter(address)[-4:]}" if address else None
 
 

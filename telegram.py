@@ -50,9 +50,14 @@ class FilesType:
 
 
 # Helpful functions
-def can_setup_bot(message:types.Message) -> bool:
-    user = asyncio.get_event_loop().run_until_complete(bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id))
+async def can_setup_bot(message:types.Message) -> bool:
+    user = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
     return user.status in ['creator', 'administrator']
+
+async def can_setup_notif(message:types.Message, sender_id:int) -> bool:
+    sender = get_sender_data(id=sender_id)[0]
+    can_stp = await can_setup_bot(message)
+    return can_stp or (sender['telegram_user'] == message.from_user.id and sender['telegram_id'] == message.chat.id)
 
 def to_bot_or_not(message:types.Message, command:str = None) -> bool:
     if not command:
@@ -272,6 +277,7 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
     count = 0
     history_items = []
     senders_data = fetch_all_senders()
+    senders_data = [s for s in senders_data if all(s[k] for k in s.keys())]
 
     async def gather_history_for_sender(sender: dict) -> None:
         nonlocal history_items
@@ -287,7 +293,7 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
             return
         elif chat.permissions.can_send_messages is False and not cache.get(f'{sender["telegram_id"]}_error'):
             # delete_senders_data(sender['collection_address'], sender['telegram_id'])
-            MESS = await new_message(text="You dont give me permission to send messages", chat_id=sender['telegram_user'])
+            MESS = await new_message(text="You dont give me permission to send messages", chat_id=sender['telegram_user'], keyboard=quit_keyboard(sender['telegram_id']))
             cache[f'{sender["telegram_id"]}_error'] = MESS.message_id
             return
         history = await get_new_history(session, sender, config['ton_api'], first)
@@ -334,10 +340,10 @@ async def history_notify(counter=0):
  
         
 # Setup functions
-def language_keyboard(id:int):
+def language_keyboard(id:int = -1):
     keyboard = InlineKeyboardMarkup(row_width=1)
     for language in translate:
-        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}_{id}'))
+        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}{"_" + str(id) if id > -1 else ""}'))
     return keyboard
 
 def quit_keyboard(chat_id:int):
@@ -349,63 +355,54 @@ def quit_keyboard(chat_id:int):
 @dp.message_handler(lambda message: is_command(message, 'start'))
 @dp.message_handler(lambda message: is_command(message, 'add_notification'))
 async def start_setup(message: types.Message):
-    if not(message.chat.type == types.ChatType.PRIVATE or is_setup_by_chat_id(message.chat.id)) and can_setup_bot(message):
+    can_setup = await can_setup_bot(message)
+    await try_to_delete(message.chat.id, message.message_id)
+    if not(message.chat.type == types.ChatType.PRIVATE or is_setup_by_chat_id(message.chat.id)) and can_setup:
         logger.info(f"Bot added to a new chat: {message.chat.id}")
         try:
             await try_to_delete(message.chat.id, message.message_id)
         except Exception as e:
             logger.error(f"Failed to delete the message: {e}")
-        senders = get_sender_data(chat_id=message.chat.id)
+        senders = get_sender_data(chat_id=message.chat.id, new = True)
         sender = senders[0]
         sender['telegram_id'] = message.chat.id
-        id = set_sender_data(sender)
-        lang = return_chat_language(message.chat.id) or [t for t in translate][0]
+        sender['telegram_user'] = message.from_user.id
+        id = set_sender_data(sender) or -1
+        lang = return_chat_language(message.chat.id)
         setup_message = await new_message (chat_id=message.chat.id, text=translate[lang]['start_setup'], keyboard=language_keyboard(id))
         messid = setup_message.message_id
 
 
         enter_cache(message.chat.id, {"setup": messid, 'sender': id})
         logger.info(f"Setup message sent with ID: {messid}")
-    elif can_setup_bot(message):
+    elif can_setup:
         await list_notifications(message)
         pass
     
 @dp.message_handler(lambda message: is_command(message, 'list_notification'))
-async def list_notifications(message: types.Message):
-    if not message.chat.type == types.ChatType.PRIVATE and can_setup_bot(message):
-        senders = get_sender_data(chat_id=message.chat.id)
-        text = f"<b>{translate[return_chat_language(message.chat.id)]['settings'][0]}</b>\n"
+async def list_notifications(message: types.Message, delete = False):
+    can_setup = await can_setup_bot(message)
+    senders = get_sender_data(chat_id=message.chat.id)
+    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
+        lang = return_chat_language(message.chat.id)
         keyboard = InlineKeyboardMarkup(row_width=1)
+        valid = 0
         for sender in senders:
-            keyboard.add(InlineKeyboardButton(f"{short_address(sender['collection_address'])}", 
-                                                callback_data=f"setup_{sender['collection_address']}"))
+            if all(sender.get(x, None) for x in sender):
+                valid += 1
+                if not delete:
+                    keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"setup_{sender['id']}"))
+                else:
+                    keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"delete_{sender['id']}"))
+        keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
+        text = snippet['bold'].format(text=(translate[lang]['settings'][0].format(count=valid) if not delete else translate[lang]['settings'][9]))
         await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard)
-        
-        try :
-            await message.delete()
-        except Exception as e:
-            logger.error(f"Failed to delete the message: {e}")
+        await try_to_delete(message.chat.id, message.message_id)
 
 @dp.message_handler(lambda message: is_command(message, 'delete_notification'))
-async def delete_notification(message: types.Message):
-    if not message.chat.type == types.ChatType.PRIVATE and can_setup_bot(message):
-        args = message.text.split()[1:]
-        senders = get_sender_data(chat_id=message.chat.id)
-        addresses = [sender['collection_address'] for sender in senders]
-        if len(args) != 1:
-            await new_message(text="Input command again", chat_id=message.chat.id)
-            return
-        if args[0] not in addresses:
-            text = f"Collection <code>{args[0]}</code> not found"
-            await new_message(text=text, chat_id=message.chat.id)
-            return
-        delete_senders_data(args[0], message.chat.id)
-        async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=args[0])
-            text = f"Notification for collection <code>\"{collection.name}\"</code> deleted"
-            await new_message(text=text, chat_id=message.chat.id)
-
+async def delete_notification_command(message: types.Message):
     await try_to_delete(message.chat.id, message.message_id)
+    await list_notifications(message, delete=True)
     
 @dp.message_handler(lambda message: is_command(message, 'help'))
 async def help_note(message: types.Message):
@@ -415,15 +412,15 @@ async def help_note(message: types.Message):
     
 @dp.callback_query_handler(lambda call: call.data.startswith('lang_'))
 async def on_language_selected(call: CallbackQuery):
-    if can_setup_bot(call.message):
+    can_setup = await can_setup_notif(call.message, int(call.data.split('_')[2]))
+    if can_setup:
         cache = get_cache(call.from_user.id)
         args = call.data.split('_')
-        if cache.get("sender") is None:
-            sender = get_sender_data(chat_id=call.message.chat.id, address=args[2])[0]
+        if cache.get("sender") is None and len(args) > 2:
+            sender = get_sender_data(id=int(args[2]))[0]
         else:
             sender = get_sender_data(id=cache.get('sender'))[0]
         sender['language'] = args[1]
-        sender['collection_address'] = args[2]
         sender['telegram_id'] = call.message.chat.id
         sender['telegram_user'] = call.from_user.id
         sender_id = set_sender_data(sender)
@@ -431,13 +428,50 @@ async def on_language_selected(call: CallbackQuery):
         await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
     else:
         await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
+
+@dp.callback_query_handler(lambda query: query.data.startswith('setup_'))
+async def settings(query: types.CallbackQuery):
+    sender = get_sender_data(id=int(query.data.split('_')[1]))[0]
+    can_setup = await can_setup_notif(query.message, sender['id'])
+    if can_setup:
+        address = sender['collection_address']
+        text = f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][1]}</b>\n\n"
+        async with aiohttp.ClientSession() as session:
+            collection = await get_collection_info(session=session, collection_address=address)
+        if collection and address_converter(collection.address) == address_converter(address):
+            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][2])}: {collection.name}\n"
+            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
+            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][4])}: {collection.owner.link_user_text()}\n\n"
+            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][5])}: {collection.description}\n"
+            keyboard = InlineKeyboardMarkup(row_width=2)
+            keyboard.add(
+                # InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
+                InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")
+                )
+            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data="list_notification"))
+            await try_to_edit(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, keyboard=keyboard)      
+            
+@dp.callback_query_handler(lambda c: c.data.startswith('delete_'))
+async def delete_notification(callback: types.CallbackQuery):
+    message = callback.message
+    args = callback.data.split('_')[1:]
+    sender = get_sender_data(id=int(args[0]))[0]
+    can_setup = await can_setup_notif(message, int(args[0]))
+    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
+        delete_senders_data(id = args[0])
+        text = f"{translate[return_chat_language(message.chat.id)]['delete']}: {snippet['bold'].format(text=sender['name'])}\n({snippet['code'].format(text=args[0])})"
+        await new_message(text=text, chat_id=message.chat.id, keyboard=quit_keyboard(message.chat.id))
+
+    await try_to_delete(message.chat.id, message.message_id)
         
 @dp.message_handler(lambda message: message.reply_to_message and any(translate[x]["setup"][0] for x in translate))
 async def handle_reply(message: types.Message):
     cache = get_cache(message.from_user.id)
     sender = get_sender_data(id=cache.get('sender'))[0]
-    if not can_setup_bot(message):
-        await message.reply(translate[sender['language']]["setup"][1])
+    lang = return_chat_language(message.chat.id)
+    can_setup = await can_setup_notif(message, sender['id'])
+    if not can_setup:
+        await message.reply(translate[lang]["setup"][1])
         return
     if address_converter(message.text):
         async with aiohttp.ClientSession() as session:
@@ -446,33 +480,14 @@ async def handle_reply(message: types.Message):
             sender['telegram_user'] = message.from_user.id
             sender['collection_address'] = message.text
             set_sender_data(sender)
-            await message.reply(translate[sender['language']]["setup"][2])
+            await message.reply(translate[lang]["setup"][2])
     else:
-        await message.reply(translate[sender['language']]["setup"][3])
+        await message.reply(translate[lang]["setup"][3])
 
-@dp.callback_query_handler(lambda query: query.data.startswith('setup_'))
-async def settings(query: types.CallbackQuery):
-    if can_setup_bot(query.message):
-        text = f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][1]}</b>\n\n"
-        async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=query.data[6:], chat_id=query.message.chat.id)
-        if collection and address_converter(collection.address) == address_converter(query.data[6:]):
-            text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][2]}</b>{collection.name}\n"
-            text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][3]}</b><code>{collection.address}</code>\n"
-            text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][4]}</b>{collection.owner.link_user_text()}\n\n"
-            text += f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][5]}</b>{collection.description}\n"
-            keyboard = InlineKeyboardMarkup(row_width=2)
-            keyboard.add(
-                # InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][6]}", callback_data=f"edit_{query.data[6:]}"),
-                InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][7]}", callback_data=f"delete_{query.data[6:]}")
-                )
-            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data="list_notifications"))
-            await try_to_edit(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, keyboard=keyboard)      
-        
-
-
-
-        
+@dp.callback_query_handler(lambda c: c.data.startswith('list_notification'))
+async def list_notifications_callback(callback: types.CallbackQuery):
+    message = callback.message
+    await list_notifications(message)
 
 
 # just inline

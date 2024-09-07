@@ -43,6 +43,7 @@
             "Name" : "English",
             "Close": "Close",
             "start_setup": "Please choose your language",
+            "delete" : "Notification for collection deleted",
             "help_note": "/start - restart bot\n/help - send this note again\n/list_notification - return list of NFT notifications for this chat\n/add_notification - add new notification for NFT collection\n/delete_notification - delete notification for NFT collection\n...\n\nmore soon...",
             "SoldItem": ["Sold for:", "Market fee:", "Royalty fee:", "Network fee:", "Seller's profit:", "New owner:", "Old owner:"],
             "AuctionItem": ["Listed for sale:", "Current price:", "Market fee:", "Royalty fee:", "Network fee:", "Maximum price:", "Next price:", "Minimum increment:", "End time:", "Profit:"],
@@ -51,12 +52,13 @@
             "tg_util": ["Buy now on", "Check on", "Collection on", "⚙️ Set up for your group/channel ⚙️", "You can place your AD here"],
             "date_util" : ["ago", "months", "days", "hours", "minutes", "seconds"],
             "setup" : ["Thank you! Now please enter the NFT collection address in response to this message", "You do not have permission to execute this command", "Thank you! The bot is now set up, but you can see all commands by /help", "Incorrect NFT collection address. Please enter it again."],
-            "settings" : ["Configured notifications in this chat", "Data about notification", "Name", "Address", "Owner", "Description", "Edit", "Delete", "Back to list"]
+            "settings" : ["Configured notifications in this chat: {count}", "Data about notification", "Name", "Address", "Owner", "Description", "Edit", "Delete", "Back to list", "What you want to delete from this?"]
         },
         "ru":{
             "Name" : "Русский",
             "Close" : "Закрыть",
             "start_setup": "Пожалуйста, выберите язык",
+            "delete" : "Уведомления отключены для коллекции",
             "help_note": "/start - перезапустить бота\n/help - отправить это сообщение снова\n/list_notification - показать список уведомлений о NFT для этого чата\n/add_notification - добавить новое уведомление для коллекции NFT\n/delete_notification - удалить уведомление для коллекции NFT\n...\n\nбольше функций позже...",
             "SoldItem":["Продано за:","Комиссия маркета:","Комиссия роялти:","Комиссия сети:","Профит продавца:","Новый владельец:","Старый владельец:"],
             "AuctionItem": ["Выставил на продажу:", "Текущая цена:", "Комиссия маркета:", "Комиссия роялти:", "Комиссия сети:", "Максимальная цена:", "Следующая цена:", "Минимальный шаг:", "Время окончания:", "Прибыль продавца:"],
@@ -65,7 +67,7 @@
             "tg_util" : ["Купить на", "Смотреть на", "Коллекция на", "⚙️ Настроить для вашей группы/канала ⚙️", "Ты можешь поместить свою рекламу здесь"],
             "date_util" : ["назад", "месяцев", "дней", "часов", "минут", "секунд"],
             "setup" : ["Спасибо! Теперь введите адрес NFT коллекции ответом на это сообщение", "У вас нет прав на выполнение этой команды", "Спасибо! Теперь бот настроен, но вы также можете просмотреть все команды с помощью /help", "Некорректный адрес NFT коллекции. Пожалуйста, введите еще раз."],
-            "settings" : ["Настроенные уведомления в этом чате", "Данные об уведомлении", "Название", "Адрес", "Владелец", "Описание", "Редактировать", "Удалить", "Назад к списку"]
+            "settings" : ["Настроенные уведомления в этом чате: {count}", "Данные об уведомлении", "Название", "Адрес", "Владелец", "Описание", "Редактировать", "Удалить", "Назад к списку", "Что вы хотите тут удалить?"]
 
         }
     }

@@ -30,10 +30,10 @@ CREATE TABLE IF NOT EXISTS "cache" (
 	PRIMARY KEY("user_id")
 );
 CREATE TABLE IF NOT EXISTS "senders" (
+	"id"	INTEGER NOT NULL UNIQUE,
 	"collection_address"	TEXT,
 	"telegram_id"	INTEGER,
 	"last_time"	INTEGER NOT NULL DEFAULT 0,
-	"id"	INTEGER NOT NULL UNIQUE,
 	"telegram_user"	INTEGER DEFAULT 0,
 	"language"	INTEGER DEFAULT 'en',
 	"timezone"	INTEGER DEFAULT 0,
