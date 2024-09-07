@@ -130,6 +130,7 @@ def clear_ipv6_interface(interface='ens3', mask=128):
 
 
 async def prepare():
+    global ipv6_list
     # Конфигурации для добавления
     sysctl_configs = {
         "net.ipv6.conf.ens3.proxy_ndp": "1",
