@@ -186,4 +186,4 @@ async def prepare():
         while any(not t.done() for t in tasks):
             logger.info(f'Addresses added: {len([t.done() for t in tasks])}/{ipv6_count}')
             await asyncio.sleep(1)
-    logger.info('IPv6 addresses added successfully. Here is your IPv6 addresses: %s', ipv6_list)
+    logger.info('IPv6 addresses added successfully.')
