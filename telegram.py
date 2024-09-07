@@ -4,13 +4,12 @@ import json
 import aiofiles
 import traceback
 import aiohttp
-from typing import Tuple
+import random
 
 from date import now, number_to_date
-from database import (fetch_config_data, get_last_time, get_ad, is_setup_by_chat_id,
-                    enter_last_time, enter_price, update_senders_data, return_chat_language,
-                    delete_senders_data,  get_logger,
-                    enter_cache, get_cache, get_sender_data, fetch_all_senders, set_sender_data)
+from database import (fetch_config_data, get_last_time, get_ad, enter_last_time, enter_price, update_senders_data, 
+                      return_chat_language, delete_senders_data,  get_logger, enter_cache, get_cache, get_sender_data, 
+                      set_sender_data, clear_cache, clear_bad_senders)
 from getgems import (
     get_new_history, get_nft_info, get_collection_info, address_converter, short_address,
     HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType, AddressType
@@ -20,7 +19,7 @@ from proxy import prepare
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, 
+from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, RetryAfter,
                                       MessageToEditNotFound, MessageCantBeDeleted, MessageCantBeEdited, UserDeactivated)
 
 
@@ -30,6 +29,8 @@ config = json.load(open('getgems.json', 'r', encoding='utf-8'))
 local = config.pop('local')
 translate = config.pop('translate')
 snippet = config.pop('snippets')
+false_inline = config.pop('false_inline')
+
 
 # Bot setup
 config = fetch_config_data()
@@ -39,7 +40,7 @@ dp = Dispatcher(bot)
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
 price_ids = [11419, 28850, 825, 1027, 1]
-app_version = "0.8a"
+app_version = "0.9a"
 
 class FilesType:
     NONE = 0
@@ -130,26 +131,23 @@ async def try_to_edit(text:str, chat_id:int, message_id:int, keyboard: InlineKey
         return
     
 async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = None, disable_preview:bool = True, file_type: FilesType = FilesType.NONE, file = None, parse_mode = ParseMode.HTML) -> types.Message:
-    try:
+    async def send():
         if file_type == FilesType.IMAGE:
-            return await bot.send_photo(text=html_back_escape(text), 
+            return await bot.send_photo(caption=html_back_escape(text), 
                                          chat_id=chat_id, 
                                          parse_mode=parse_mode, 
-                                         disable_web_page_preview=disable_preview, 
                                          reply_markup=keyboard, 
                                          photo=file)
         elif file_type == FilesType.VIDEO:
-            return await bot.send_video(text=html_back_escape(text), 
+            return await bot.send_video(caption=html_back_escape(text), 
                                          chat_id=chat_id, 
                                          parse_mode=parse_mode, 
-                                         disable_web_page_preview=disable_preview, 
                                          reply_markup=keyboard, 
                                          video=file)
         elif file_type == FilesType.DOCUMENT:
-            return await bot.send_document(text=html_back_escape(text), 
+            return await bot.send_document(caption=html_back_escape(text), 
                                            chat_id=chat_id, 
                                            parse_mode=parse_mode, 
-                                           disable_web_page_preview=disable_preview, 
                                            reply_markup=keyboard, 
                                            document=file)
         elif file_type == FilesType.NONE:
@@ -157,7 +155,10 @@ async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = 
                                           chat_id=chat_id, 
                                           parse_mode=parse_mode, 
                                           disable_web_page_preview=disable_preview, 
-                                          reply_markup=keyboard)
+                                          reply_markup=keyboard)        
+    
+    try:
+        await send()
     # except MessageIsTooLong:
     #     logger.warning('Message is too long to send in chat ' + str(chat_id))
     except UserDeactivated:
@@ -166,6 +167,9 @@ async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = 
         logger.warning("Bot was blocked by user ({user_id})".format(user_id=chat_id))
     except ChatNotFound:
         logger.warning("Chat ({user_id}) not found".format(user_id=chat_id))
+    except RetryAfter as e:
+        asyncio.sleep(e.timeout + random.random())
+        await send()
     except Exception as e:
         error_text =  str(e)
         logger.error(f'Error sending message in chat {chat_id}: {error_text}')
@@ -196,7 +200,22 @@ async def send_error_message(chat_id:int, message:str, e:Exception = None, only_
 
 @dp.callback_query_handler(lambda c: c.data == 'delete_message')
 async def delete_message(call: types.CallbackQuery):
-    await try_to_delete(call.message.chat.id, call.message.message_id)
+    try:
+        # Удаляем текущее сообщение
+        await try_to_delete(call.message.chat.id, call.message.message_id)
+        
+        message = call.message
+        
+        # Проходим по цепочке ответов
+        while message.reply_to_message:
+            message = message.reply_to_message
+            await try_to_delete(message.chat.id, message.message_id)
+    
+    except Exception as e:
+        # Логируем ошибку, если что-то пошло не так
+        logger.error(f"Error deleting messages: {e}")
+
+
 
 
 
@@ -276,54 +295,78 @@ async def nft_history_notify(session: aiohttp.ClientSession, history_item: Histo
 async def prepare_notify(session: aiohttp.ClientSession, first=10):
     count = 0
     history_items = []
-    senders_data = fetch_all_senders()
-    senders_data = [s for s in senders_data if all(s[k] for k in s.keys())]
+    senders_data = get_sender_data()
+    senders_data = [s for s in senders_data if all(s[k] is not None for k in s.keys())]
 
-    async def gather_history_for_sender(sender: dict) -> None:
-        nonlocal history_items
+    async def gather_history_for_sender(sender: dict) -> list[tuple]:
         cache = get_cache(sender['telegram_user'])
         try:
             chat = await bot.get_chat(sender['telegram_id'])
         except Exception as e:
             chat = None
             logger.error(f"Error in prepare_notify: {e}")
+        
         if not chat:
-            delete_senders_data(sender['collection_address'], sender['telegram_id'])
-            await new_message(text="You delete me from chat? please let me back", chat_id=sender['telegram_user'])
-            return
-        elif chat.permissions.can_send_messages is False and not cache.get(f'{sender["telegram_id"]}_error'):
-            # delete_senders_data(sender['collection_address'], sender['telegram_id'])
-            MESS = await new_message(text="You dont give me permission to send messages", chat_id=sender['telegram_user'], keyboard=quit_keyboard(sender['telegram_id']))
-            cache[f'{sender["telegram_id"]}_error'] = MESS.message_id
-            return
-        history = await get_new_history(session, sender, config['ton_api'], first)
-            
-        for h in history:
-            history_items.append((h, sender))
-            
-    senders_data = [sender for sender in senders_data if all(sender[x] is not None for x in sender)]
+            delete_senders_data(id=sender['id'])
+            await new_message(text="You deleted me from the chat? Please let me back.", chat_id=sender['telegram_user'])
+            return []
+        elif chat.permissions and chat.permissions.can_send_messages is False:
+            if not cache.get(f'{sender["telegram_id"]}_error'):
+                MESS = await new_message(
+                    text="You haven't given me permission to send messages.",
+                    chat_id=sender['telegram_user'],
+                    keyboard=quit_keyboard(sender['telegram_id'])
+                )
+                cache[f'{sender["telegram_id"]}_error'] = MESS.message_id
+            return []
+        elif chat.permissions and cache.get(f'{sender["telegram_id"]}_error'):
+            await bot.delete_message(chat_id=sender['telegram_user'], message_id=cache[f'{sender["telegram_id"]}_error'])
+            del cache[f'{sender["telegram_id"]}_error']
 
+        # Получаем историю для текущего отправителя
+        history = await get_new_history(session, sender, config['ton_api'], first)
+        
+        # Возвращаем историю для обработки
+        return [(h, sender) for h in history]
+
+    # Собираем результаты всех тасков
     tasks = [gather_history_for_sender(sender) for sender in senders_data]
+    results = await asyncio.gather(*tasks)
+
+    # Объединяем все элементы истории
+    for result in results:
+        history_items.extend(result)
+
+    async def process_history_item(history_item: tuple, semaphore: asyncio.Semaphore) -> None:
+        nonlocal count
+        async with semaphore:  # Ограничение числа одновременных задач
+            history, sender = history_item
+
+            if history.type in elligible:
+                if history.time == 0:
+                    sender['last_time'] = now()  # Обновляем напрямую
+                else:
+                    await nft_history_notify(
+                        session=session,
+                        history_item=history,
+                        chat_id=sender['telegram_id'],
+                        lang=sender['language'],
+                        tz=sender['timezone']
+                    )
+                    count += 1
+                    sender['last_time'] = history.time  # Обновляем напрямую
+
+    # Создаем семафор для ограничения параллельных задач
+    semaphore = asyncio.Semaphore(10)  # Ограничиваем до 10 одновременных задач, можно изменить
+
+    # Сортируем историю
+    sorted_history_items = sorted(history_items, key=lambda x: int(x[0].time) + x[0].type.value, reverse=True)
+
+    # Обрабатываем историю с использованием семафора
+    tasks = [process_history_item(item, semaphore) for item in sorted_history_items]
     await asyncio.gather(*tasks)
 
-    async def process_history_item(history_item: Tuple) -> None:
-        nonlocal count
-        history, sender = history_item
-        if history.type in elligible:
-            if history.time == 0:
-                senders_data[sender['index']]['last_time'] = now()
-            else:
-                await nft_history_notify(session=session, 
-                                         history_item=history, 
-                                         chat_id=sender['telegram_id'], 
-                                         lang=sender['language'], 
-                                         tz=sender['timezone'])
-                count += 1
-                senders_data[sender['index']]['last_time'] = history.time
-
-    sorted_history_items = sorted(history_items, key=lambda x: int(x[0].time) + x[0].type.value, reverse=True)
-    await asyncio.gather(*(process_history_item(item) for item in sorted_history_items))
-
+    # Обновляем данные отправителей
     update_senders_data(senders_data)
     enter_last_time()
 
@@ -357,44 +400,39 @@ def quit_keyboard(chat_id:int):
 async def start_setup(message: types.Message):
     can_setup = await can_setup_bot(message)
     await try_to_delete(message.chat.id, message.message_id)
-    if not(message.chat.type == types.ChatType.PRIVATE or is_setup_by_chat_id(message.chat.id)) and can_setup:
+    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
         logger.info(f"Bot added to a new chat: {message.chat.id}")
-        try:
-            await try_to_delete(message.chat.id, message.message_id)
-        except Exception as e:
-            logger.error(f"Failed to delete the message: {e}")
         senders = get_sender_data(chat_id=message.chat.id, new = True)
         sender = senders[0]
         sender['telegram_id'] = message.chat.id
         sender['telegram_user'] = message.from_user.id
-        id = set_sender_data(sender) or -1
+        id = sender.get('id') or -1
         lang = return_chat_language(message.chat.id)
         setup_message = await new_message (chat_id=message.chat.id, text=translate[lang]['start_setup'], keyboard=language_keyboard(id))
         messid = setup_message.message_id
 
-
         enter_cache(message.chat.id, {"setup": messid, 'sender': id})
         logger.info(f"Setup message sent with ID: {messid}")
-    elif can_setup:
-        await list_notifications(message)
-        pass
     
 @dp.message_handler(lambda message: is_command(message, 'list_notification'))
 async def list_notifications(message: types.Message, delete = False):
-    can_setup = await can_setup_bot(message)
     senders = get_sender_data(chat_id=message.chat.id)
-    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
+    if not message.chat.type == types.ChatType.PRIVATE:
         lang = return_chat_language(message.chat.id)
-        keyboard = InlineKeyboardMarkup(row_width=1)
+        keyboard = InlineKeyboardMarkup()
         valid = 0
         for sender in senders:
-            if all(sender.get(x, None) for x in sender):
+            if all(sender.get(x) is not None for x in sender):
                 valid += 1
                 if not delete:
                     keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"setup_{sender['id']}"))
                 else:
                     keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"delete_{sender['id']}"))
-        keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
+        if not delete:
+            keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'),
+                        InlineKeyboardButton(translate[lang]["Add"], callback_data='add_notification'))
+        else:
+            keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
         text = snippet['bold'].format(text=(translate[lang]['settings'][0].format(count=valid) if not delete else translate[lang]['settings'][9]))
         await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard)
         await try_to_delete(message.chat.id, message.message_id)
@@ -403,7 +441,7 @@ async def list_notifications(message: types.Message, delete = False):
 async def delete_notification_command(message: types.Message):
     await try_to_delete(message.chat.id, message.message_id)
     await list_notifications(message, delete=True)
-    
+
 @dp.message_handler(lambda message: is_command(message, 'help'))
 async def help_note(message: types.Message):
     lang = return_chat_language(message.chat.id)
@@ -424,7 +462,7 @@ async def on_language_selected(call: CallbackQuery):
         sender['telegram_id'] = call.message.chat.id
         sender['telegram_user'] = call.from_user.id
         sender_id = set_sender_data(sender)
-        enter_cache(user_id=call.from_user.id, keys={'sender': sender_id})
+        enter_cache(user_id=call.message.chat.id, keys={'sender': int(sender_id), 'setup':  call.message.message_id})
         await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
     else:
         await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
@@ -464,13 +502,13 @@ async def delete_notification(callback: types.CallbackQuery):
 
     await try_to_delete(message.chat.id, message.message_id)
         
-@dp.message_handler(lambda message: message.reply_to_message and any(translate[x]["setup"][0] for x in translate))
+@dp.message_handler(lambda message: message.reply_to_message and any(translate[x]["setup"][0] in message.reply_to_message.text for x in translate))
 async def handle_reply(message: types.Message):
-    cache = get_cache(message.from_user.id)
+    cache = get_cache(message.chat.id)
     sender = get_sender_data(id=cache.get('sender'))[0]
     lang = return_chat_language(message.chat.id)
     can_setup = await can_setup_notif(message, sender['id'])
-    if not can_setup:
+    if not can_setup or message.reply_to_message.message_id != cache.get('setup'):
         await message.reply(translate[lang]["setup"][1])
         return
     if address_converter(message.text):
@@ -479,8 +517,13 @@ async def handle_reply(message: types.Message):
             sender["name"] = collection.name
             sender['telegram_user'] = message.from_user.id
             sender['collection_address'] = message.text
-            set_sender_data(sender)
-            await message.reply(translate[lang]["setup"][2])
+            if not get_sender_data(address=message.text, chat_id=message.chat.id):
+                set_sender_data(sender, id = cache.get('sender'))
+                await message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
+                clear_cache(message.chat.id)
+            else:
+                await message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
+                await try_to_delete(message.chat.id, cache.get('setup'))
     else:
         await message.reply(translate[lang]["setup"][3])
 
@@ -489,6 +532,10 @@ async def list_notifications_callback(callback: types.CallbackQuery):
     message = callback.message
     await list_notifications(message)
 
+@dp.callback_query_handler(lambda c: c.data.startswith('add_notification'))
+async def add_notifications_callback(callback: types.CallbackQuery):
+    message = callback.message
+    await start_setup(message)
 
 # just inline
 @dp.inline_handler()
@@ -504,10 +551,10 @@ async def inline_link_preview(query: types.InlineQuery):
         else:
             nft = None
     if not nft:
-        link = 'https://getgems.io/'
-        title = 'Cannot load info about nft'
-        desc = 'try again later'
-        thumb = "https://cache.tonapi.io/imgproxy/LyP5sSl_-zzlYjxwIrizRjzuFPQt_2abAT9u4-0W52Q/rs:fill:200:200:1/g:no/aHR0cHM6Ly9nYXMxMTEuczMuYW1hem9uYXdzLmNvbS9pbWFnZXMvM2U3YzU1ZjYxODg3NDlmOGI0NjdiOTY5YzczZjA0NzcucG5n.webp" 
+        link = false_inline['link']
+        title = false_inline['title']
+        desc = false_inline['desc']
+        thumb = false_inline['thumb']
         
         inline_button = InlineKeyboardButton(text="Getgems", url=link)
         inline_keyboard = InlineKeyboardMarkup().add(inline_button)
@@ -515,7 +562,7 @@ async def inline_link_preview(query: types.InlineQuery):
         result = types.InlineQuery
     
         result = types.InlineQueryResultArticle(
-                id='1',
+                id='false_inline',
                 title=title,
                 description=desc,
                 thumb_url=thumb,
@@ -533,7 +580,7 @@ async def inline_link_preview(query: types.InlineQuery):
         inline_keyboard = InlineKeyboardMarkup().add(inline_button)
         
         result = types.InlineQueryResultPhoto(
-            id='1',
+            id='true_inline',
             photo_url=thumb,
             thumb_url=thumb,
             title=title,
@@ -554,6 +601,7 @@ async def inline_link_preview(query: types.InlineQuery):
 async def main():
     logger.info(f"\n\n----- Start of new session, version: {app_version}, now timestamp: {get_last_time()}, date: {number_to_date(get_last_time())} -----")
     await prepare()
+    # clear_bad_senders()
     asyncio.create_task(run_periodically(300, enter_cmc_price))
     asyncio.create_task(run_periodically(5, history_notify))
 

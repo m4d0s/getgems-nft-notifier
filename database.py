@@ -46,13 +46,12 @@ logger = get_logger()
 
 #config
 def fetch_config_data(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM config")
-    config_data = cursor.fetchall()
-    
-    conn.close()
+    config_data = []
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM config")
+        config_data = cursor.fetchall()
     
     config_data_list = {}
     for i in range(len(config_data)):
@@ -61,22 +60,19 @@ def fetch_config_data(db_path=db_path):
     return config_data_list
 
 def enter_last_time(db_path=db_path, timestamp = now()):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("UPDATE config SET key = ? WHERE value = \"now\"", (timestamp,))
-    conn.commit()
-    
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("UPDATE config SET key = ? WHERE value = \"now\"", (timestamp,))
+        conn.commit()
     
 def get_last_time(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT key FROM config WHERE value = \"now\"")
-    last_time = cursor.fetchone()
-    
-    conn.close()
+    last_time = [-1]
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT key FROM config WHERE value = \"now\"")
+        last_time = cursor.fetchone()
     
     return int(last_time[0])
 
@@ -84,24 +80,24 @@ def get_last_time(db_path=db_path):
 
 #cache
 def enter_cache(user_id:int, keys:dict, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    for k, v in keys.items():
-        v = str(v) if v is not None else None
-        cursor.execute("""
-        INSERT OR REPLACE INTO cache (name, value, user_id) 
-        VALUES (?, ?, ?)
-        """, (k, v, user_id))
-    conn.commit()
-    
-    conn.close()
-    
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        for k, v in keys.items():
+            v = str(v) if v is not None else None
+            cursor.execute("""
+            INSERT OR REPLACE INTO cache (name, value, user_id) 
+            VALUES (?, ?, ?)
+            """, (k, v, user_id))
+        conn.commit()
+        
 def get_cache(user_id:int, db_path=db_path) -> dict:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM cache WHERE user_id = ?", (user_id,))
-    cache = cursor.fetchall()
+    cache = []
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM cache WHERE user_id = ?", (user_id,))
+        cache = cursor.fetchall()
     
     conn.close()
     return_dict = {}
@@ -115,7 +111,12 @@ def get_cache(user_id:int, db_path=db_path) -> dict:
         
     return return_dict
 
-
+def clear_cache(user_id:int, db_path=db_path):
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM cache WHERE user_id = ?", (user_id,))
+        conn.commit()
 
 
 #price
@@ -123,25 +124,22 @@ def enter_price(value, db_path=db_path):
     if value is None:
         return
     
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    for k, v in value.items():
-        cursor.execute("""
-        INSERT OR REPLACE INTO price (id, value, name) 
-        VALUES (?, ?, ?)
-        """, (k, v[0], v[1]))
-    conn.commit()
-    
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        for k, v in value.items():
+            cursor.execute("""
+            INSERT OR REPLACE INTO price (id, value, name) 
+            VALUES (?, ?, ?)
+            """, (k, v[0], v[1]))
+        conn.commit()
     
 def get_price(db_path=db_path) -> dict:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM price")
-    prices = cursor.fetchall()
-    
-    conn.close()
+    prices = []
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM price")
+        prices = cursor.fetchall()
     
     return {item[1]: item[2] for item in prices}
 
@@ -149,40 +147,23 @@ def get_price(db_path=db_path) -> dict:
 
 #setup
 def return_chat_language(id, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT language FROM senders WHERE telegram_id = ? ORDER BY last_time DESC", (id,))
-    senders_data = cursor.fetchone()
-    
-    conn.close()
+    senders_data = None
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT language FROM senders WHERE telegram_id = ? ORDER BY last_time DESC", (id,))
+        senders_data = cursor.fetchone()
     
     return senders_data[0] or translate_default if senders_data else translate_default
-
-def is_setup_by_chat_id(id, db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM senders WHERE telegram_id = ?", (id,))
-    senders_data = cursor.fetchone()
-    
-    conn.close()
-    
-    return True if senders_data and all(item is not None for _, item in enumerate(senders_data)) else False
-
-
-
 
 
 #ads
 def get_ad(db_path=db_path):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM ads")
-    ad = cursor.fetchall()
-    
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM ads")
+        ad = cursor.fetchall()
     
     ad_list = [list(row) for row in ad]
     now_time = now()
@@ -195,25 +176,10 @@ def get_ad(db_path=db_path):
 
 
 
-
 #senders
-def fetch_all_senders(db_path=db_path) -> list:
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM senders")
-    senders_data = cursor.fetchall()
-    
-    conn.close()
-    
-    senders_data_list = [dict(zip([description[0] for description in cursor.description], row)) 
-                         for row in senders_data]
-    return senders_data_list
-
 def update_senders_data(updated_senders_data:list, db_path=db_path) -> None:
     for send in updated_senders_data:
-        set_sender_data(send, db_path)
+        set_sender_data(send, db_path, id = send['id'])
 
 def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path, new = False) -> list[dict]:
     query = "SELECT * FROM senders"
@@ -229,6 +195,10 @@ def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db
     empty_dict['timezone'] = 0
     
     if new:
+        send = set_sender_data(empty_dict, db_path)
+        empty_dict['id'] = send
+        empty_dict['collection_address'] = address
+        empty_dict['telegram_id'] = chat_id
         return [empty_dict]
 
     # Строим список условий и параметров
@@ -245,8 +215,6 @@ def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db
     # Добавляем условия к запросу, если они есть
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    else:
-        return [empty_dict]
     
     query += " ORDER BY last_time DESC"
 
@@ -265,51 +233,55 @@ def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db
             senders_data_list = [
                 dict(zip([description[0] for description in cursor.description], sender_data))
                 for sender_data in senders_data
-            ] if senders_data else [empty_dict]
+            ] if senders_data else []
 
             return senders_data_list
 
     except sqlite3.Error as e:
         logger.error(f"An error occurred: {e}")
-        return [empty_dict]
+        return []
 
 def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int = None) -> int:
-    sender['last_time'] = now()
-    sender['timezone'] = tz
+    copy_sender = sender.copy()
+    copy_sender['last_time'] = copy_sender.get('last_time') or now()  # Обновляем время отправителя
+    copy_sender['timezone'] = copy_sender.get('timezone') or tz  # Устанавливаем временную зону
     
-    # Удаляем id из словаря, если он есть
-    id = id or sender.pop('id', -1)
+    # Если id присутствует в sender, то используем его, иначе используем переданный id
+    id = copy_sender.pop('id', None) or id 
+    
+    query = ""
+    params = []
     
     try:
-        # Открываем соединение с базой данных и создаем курсор
+        # Открываем соединение с базой данных
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             
             if id:
-                # Если id существует, выполняем UPDATE
-                cursor.execute(
-                    f"UPDATE senders SET {', '.join(f'{key} = ?' for key in sender.keys())} WHERE id = ?",
-                    (*sender.values(), id)
-                )
-                conn.commit()
-                return id
+                # Если id существует, обновляем запись
+                query = f"UPDATE senders SET {', '.join(f'{key} = ?' for key in copy_sender.keys())} WHERE id = ?"
+                params = (*copy_sender.values(), id)
             else:
-                # Вставляем новую запись, если id не указан
-                cursor.execute(
-                    f"INSERT INTO senders ({', '.join(sender.keys())}) VALUES ({', '.join(['?'] * len(sender))})",
-                    (*sender.values(),)
-                )
-                conn.commit()
-
-                # Получаем id вставленной записи
-                cursor.execute("SELECT id FROM senders WHERE rowid = ?", (cursor.lastrowid,))
-                row = cursor.fetchone()
-                return row[0] if row else -1
+                # Если id не существует, создаем новую запись
+                query = f"INSERT INTO senders ({', '.join(copy_sender.keys())}) VALUES ({', '.join(['?'] * len(copy_sender))})"
+                params = (*copy_sender.values(),)
+            
+            # Выполняем запрос
+            cursor.execute(query, params)
+            
+            # Если это INSERT, возвращаем последний вставленный id
+            if not id:
+                cursor.execute("SELECT id FROM senders WHERE rowid = last_insert_rowid()")
+                rec = cursor.fetchone()
+                id = rec[0]
+            
+            # Коммитим изменения
+            conn.commit()
+            return id
     
     except sqlite3.Error as e:
         logger.error(f"An error occurred: {e}")
         return -1
-
 
 def delete_senders_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path) -> None:
     # Ensure that at least one of the parameters is provided to avoid accidental mass deletion
@@ -345,3 +317,15 @@ def delete_senders_data(address: str = None, chat_id: int = None, id: int = None
     except sqlite3.Error as e:
         # Log or raise error for further handling
         logger.error(f"Database error occurred: {e}")
+
+def clear_bad_senders(db_path: str = db_path) -> None:
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM senders LIMIT 1")
+            keys = [description[0] for description in cursor.description]
+            query = f"DELETE FROM senders WHERE {' OR '.join(f'{key} IS NULL' for key in keys)}"
+            cursor.execute(query)
+            conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"An error occurred: {e}")

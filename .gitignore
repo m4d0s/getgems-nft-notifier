@@ -165,6 +165,8 @@ bot.log
 tempCodeRunnerFile.py
 launch.json
 *.db-journal
+*.db-wal
+*.db-shm
 #test.py
 
 #vs

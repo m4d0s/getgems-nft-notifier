@@ -2,6 +2,13 @@
     "api_url": "https://api.getgems.io/graphql",
     "db_path": "sqlite.db",
     "ipv6": "",
+
+    "false_inline": {
+        "link": "https://getgems.io/",
+        "title": "Cannot load info about nft",
+        "desc": "try again",
+        "thumb": "https://cache.tonapi.io/imgproxy/LyP5sSl_-zzlYjxwIrizRjzuFPQt_2abAT9u4-0W52Q/rs:fill:200:200:1/g:no/aHR0cHM6Ly9nYXMxMTEuczMuYW1hem9uYXdzLmNvbS9pbWFnZXMvM2U3YzU1ZjYxODg3NDlmOGI0NjdiOTY5YzczZjA0NzcucG5n.webp" 
+    },
     
     "snippets" : {
         "bold": "<b>{text}</b>",
@@ -42,6 +49,7 @@
         "en": {
             "Name" : "English",
             "Close": "Close",
+            "Add": "Add new",
             "start_setup": "Please choose your language",
             "delete" : "Notification for collection deleted",
             "help_note": "/start - restart bot\n/help - send this note again\n/list_notification - return list of NFT notifications for this chat\n/add_notification - add new notification for NFT collection\n/delete_notification - delete notification for NFT collection\n...\n\nmore soon...",
@@ -51,12 +59,13 @@
             "NftItem": ["appeared for sale!", "was sold!", "was listed at auction!", "was minted!", "was burned!", "was withdrawn from sale!", "was withdrawn from auction!", "was sent to a new owner!", "Undefined NFT status", "No detailed information on the transaction could be found", "Rarity:", "Reactions:", "Attributes:", "Owner's wallet", "Getgems account", "Telegram", "Time of tx:"],
             "tg_util": ["Buy now on", "Check on", "Collection on", "⚙️ Set up for your group/channel ⚙️", "You can place your AD here"],
             "date_util" : ["ago", "months", "days", "hours", "minutes", "seconds"],
-            "setup" : ["Thank you! Now please enter the NFT collection address in response to this message", "You do not have permission to execute this command", "Thank you! The bot is now set up, but you can see all commands by /help", "Incorrect NFT collection address. Please enter it again."],
+            "setup" : ["Thank you! Now please enter the NFT collection address in response to this message", "You do not have permission to execute this command", "Thank you! The bot is now set up, but you can see all commands by /help", "Incorrect NFT collection address. Please enter it again.", "This NFT collection is already added to this chat"],
             "settings" : ["Configured notifications in this chat: {count}", "Data about notification", "Name", "Address", "Owner", "Description", "Edit", "Delete", "Back to list", "What you want to delete from this?"]
         },
         "ru":{
             "Name" : "Русский",
             "Close" : "Закрыть",
+            "Add": "Добавить новое",
             "start_setup": "Пожалуйста, выберите язык",
             "delete" : "Уведомления отключены для коллекции",
             "help_note": "/start - перезапустить бота\n/help - отправить это сообщение снова\n/list_notification - показать список уведомлений о NFT для этого чата\n/add_notification - добавить новое уведомление для коллекции NFT\n/delete_notification - удалить уведомление для коллекции NFT\n...\n\nбольше функций позже...",
@@ -66,7 +75,7 @@
             "NftItem" : ["появилась в продаже!", "была продана!", "была выставлена на аукцион!", "была заминчена!", "была сожжена!", "была снята с продажи!", "была снята с аукциона!", "была отправлена новому владельцу!", "Не определён статус NFT", "Детальной информации по транзакции не удалось обнаружить", "Уникальность:", "Реакции:", "Атрибуты:", "Кошелёк владельца", "Аккаунт Getgems", "Телеграм", "Время транзакции:"],
             "tg_util" : ["Купить на", "Смотреть на", "Коллекция на", "⚙️ Настроить для вашей группы/канала ⚙️", "Ты можешь поместить свою рекламу здесь"],
             "date_util" : ["назад", "месяцев", "дней", "часов", "минут", "секунд"],
-            "setup" : ["Спасибо! Теперь введите адрес NFT коллекции ответом на это сообщение", "У вас нет прав на выполнение этой команды", "Спасибо! Теперь бот настроен, но вы также можете просмотреть все команды с помощью /help", "Некорректный адрес NFT коллекции. Пожалуйста, введите еще раз."],
+            "setup" : ["Спасибо! Теперь введите адрес NFT коллекции ответом на это сообщение", "У вас нет прав на выполнение этой команды", "Спасибо! Теперь бот настроен, но вы также можете просмотреть все команды с помощью /help", "Некорректный адрес NFT коллекции. Пожалуйста, введите еще раз.", "Эта NFT коллекция уже добавлена в этом чате"],
             "settings" : ["Настроенные уведомления в этом чате: {count}", "Данные об уведомлении", "Название", "Адрес", "Владелец", "Описание", "Редактировать", "Удалить", "Назад к списку", "Что вы хотите тут удалить?"]
 
         }
