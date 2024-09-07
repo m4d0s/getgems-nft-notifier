@@ -146,26 +146,23 @@ def ensure_sysctl_config(file_path, configs):
         logger.error(f"Error reading or writing the file: {e}")
 
 def clear_ipv6_interface(interface='ens3', mask=128):
-    ipv6_addresses = []
+    insert_or_delete_proxy(delete=True)
     try:
         # Получаем список всех IPv6 адресов с маской /128 на интерфейсе
-        with sqlite3.connect(config['db_path']) as conn:
-            cur = conn.cursor()
-            cur.execute('SELECT link FROM proxy WHERE version = "ipv6"')
-            result = cur.fetchall()
-            ipv6_addresses = [f'{r[0].strip()}/{mask}' for r in result]
+        result = subprocess.run(
+            f"ip -6 addr show dev {interface} | grep '/{mask}' | awk '{{print $2}}'",
+            shell=True, capture_output=True, text=True
+        )
+        ipv6_addresses = [x.strip() for x in result.stdout.strip().split('\n') if x.strip()]
         
         for ip in ipv6_addresses:
             logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
-            insert_or_delete_proxy(ip, delete=True)
-            try:
-                subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
-            except Exception as e:
-                logger.error(f"Произошла ошибка: {e}")
+            subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
+            
         logger.info('Удаление IPv6 адресов завершено.')
     
     except Exception as e:
-        logger.error(f"Произошла ошибка: {e}")
+        logger.info(f"Произошла ошибка: {e}")
 
 
 async def prepare():
