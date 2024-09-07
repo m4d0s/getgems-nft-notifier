@@ -56,9 +56,9 @@ def insert_or_delete_proxy(link=None, delete=False, version='ipv6'):
             if not link:
                 cur.execute(f'DELETE FROM proxy WHERE version = "{version}"')
             cur.execute(f'DELETE FROM proxy WHERE link = "{link}"')
-        else:
+        elif link:
             cur.execute(f'INSERT INTO proxy (link, work, version) VALUES ("{link}", 0, "{version}")')
-        conn.commit()
+            conn.commit()
 
 
 #prepare
