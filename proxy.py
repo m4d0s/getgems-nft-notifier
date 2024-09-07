@@ -146,19 +146,19 @@ def ensure_sysctl_config(file_path, configs):
         logger.error(f"Error reading or writing the file: {e}")
 
 def clear_ipv6_interface(interface='ens3', mask=128):
+    ipv6_addresses = []
     try:
         # Получаем список всех IPv6 адресов с маской /128 на интерфейсе
-        result = subprocess.run(
-            f"ip -6 addr show dev {interface} | grep '/{mask}' | awk '{{print $2}}'",
-            shell=True, capture_output=True, text=True
-        )
-        ipv6_addresses = [x.strip() for x in result.stdout.strip().split('\n') if x.strip()]
+        with sqlite3.connect(config['db_path']) as conn:
+            cur = conn.cursor()
+            cur.execute('SELECT link FROM proxy WHERE version = "ipv6"')
+            result = cur.fetchall()
+            ipv6_addresses = [f'{r[0].strip()}/{mask}' for r in result]
         
         for ip in ipv6_addresses:
-            ip = ip.strip()
             logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
-            subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
             insert_or_delete_proxy(ip, delete=True)
+            subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
         logger.info('Удаление IPv6 адресов завершено.')
     
     except Exception as e:
