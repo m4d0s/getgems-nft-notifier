@@ -49,10 +49,12 @@ def set_proxy_used(link, used=1):
         cur.execute(f'UPDATE proxy SET work = {used} WHERE link = "{link}"')
         conn.commit()
         
-def insert_or_delete_proxy(link, delete=False, version='ipv6'):
+def insert_or_delete_proxy(link=None, delete=False, version='ipv6'):
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
         if delete:
+            if not link:
+                cur.execute(f'DELETE FROM proxy WHERE version = "{version}"')
             cur.execute(f'DELETE FROM proxy WHERE link = "{link}"')
         else:
             cur.execute(f'INSERT INTO proxy (link, work, version) VALUES ("{link}", 0, "{version}")')
@@ -154,6 +156,7 @@ def clear_ipv6_interface(interface='ens3', mask=128):
         
         for ip in ipv6_addresses:
             if ip:
+                ip = ip.strip()
                 logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
                 subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
                 insert_or_delete_proxy(ip, delete=True)
