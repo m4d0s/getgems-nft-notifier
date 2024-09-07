@@ -152,14 +152,13 @@ def clear_ipv6_interface(interface='ens3', mask=128):
             f"ip -6 addr show dev {interface} | grep '/{mask}' | awk '{{print $2}}'",
             shell=True, capture_output=True, text=True
         )
-        ipv6_addresses = result.stdout.strip().split('\n')
+        ipv6_addresses = [x.strip() for x in result.stdout.strip().split('\n') if x.strip()]
         
         for ip in ipv6_addresses:
-            if ip:
-                ip = ip.strip()
-                logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
-                subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
-                insert_or_delete_proxy(ip, delete=True)
+            ip = ip.strip()
+            logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
+            subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
+            insert_or_delete_proxy(ip, delete=True)
         logger.info('Удаление IPv6 адресов завершено.')
     
     except Exception as e:
