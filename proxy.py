@@ -158,11 +158,14 @@ def clear_ipv6_interface(interface='ens3', mask=128):
         for ip in ipv6_addresses:
             logger.debug(f"Удаляю IPv6 адрес: {ip} с интерфейса {interface}")
             insert_or_delete_proxy(ip, delete=True)
-            subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
+            try:
+                subprocess.run(f"sudo ip -6 addr del {ip} dev {interface}", shell=True)
+            except Exception as e:
+                logger.error(f"Произошла ошибка: {e}")
         logger.info('Удаление IPv6 адресов завершено.')
     
     except Exception as e:
-        logger.info(f"Произошла ошибка: {e}")
+        logger.error(f"Произошла ошибка: {e}")
 
 
 async def prepare():
