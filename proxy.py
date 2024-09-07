@@ -37,7 +37,7 @@ def get_free_proxy(version='ipv4'):
         cur.execute(f'SELECT * FROM proxy WHERE work = 0 and version = "{version}" ORDER BY RANDOM() LIMIT 1')
         row = cur.fetchone()
         if not row:
-            cur.execute(f'SELECT * FROM {version} WHERE version = "{version}" ORDER BY RANDOM() LIMIT 1')
+            cur.execute(f'SELECT * FROM proxy WHERE version = "{version}" ORDER BY RANDOM() LIMIT 1')
             row = cur.fetchone()
         else:
             set_proxy_used(row[0])
