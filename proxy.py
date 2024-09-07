@@ -49,7 +49,7 @@ def set_proxy_used(link, used=1):
         cur.execute(f"UPDATE proxy SET used = {used} WHERE link = '{link}'")
         conn.commit()
         
-def insert_or_delete_proxy(link, delete=True, version='ipv6'):
+def insert_or_delete_proxy(link, delete=False, version='ipv6'):
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
         if delete:
