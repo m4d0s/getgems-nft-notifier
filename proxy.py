@@ -34,10 +34,10 @@ def get_free_proxy(version='ipv4'):
         version = 'ipv6'
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
-        cur.execute(f"SELECT * FROM proxy WHERE used = 0 and version = '{version}' ORDER BY RANDOM() LIMIT 1")
+        cur.execute(f'SELECT * FROM proxy WHERE work = 0 and version = "{version}" ORDER BY RANDOM() LIMIT 1')
         row = cur.fetchone()
         if not row:
-            cur.execute(f"SELECT * FROM {version} WHERE version = '{version}' ORDER BY RANDOM() LIMIT 1")
+            cur.execute(f'SELECT * FROM {version} WHERE version = "{version}" ORDER BY RANDOM() LIMIT 1')
             row = cur.fetchone()
         else:
             set_proxy_used(row[0])
@@ -46,16 +46,16 @@ def get_free_proxy(version='ipv4'):
 def set_proxy_used(link, used=1):
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
-        cur.execute(f"UPDATE proxy SET used = {used} WHERE link = '{link}'")
+        cur.execute(f'UPDATE proxy SET work = {used} WHERE link = "{link}"')
         conn.commit()
         
 def insert_or_delete_proxy(link, delete=False, version='ipv6'):
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
         if delete:
-            cur.execute(f"DELETE FROM proxy WHERE link = '{link}'")
+            cur.execute(f'DELETE FROM proxy WHERE link = "{link}"')
         else:
-            cur.execute(f"INSERT INTO proxy (link, used, version) VALUES ({link}, 0, '{version}')")
+            cur.execute(f'INSERT INTO proxy (link, work, version) VALUES ("{link}", 0, "{version}")')
         conn.commit()
 
 
