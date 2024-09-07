@@ -519,13 +519,15 @@ async def handle_reply(message: types.Message):
             sender['collection_address'] = message.text
             if not get_sender_data(address=message.text, chat_id=message.chat.id):
                 set_sender_data(sender, id = cache.get('sender'))
-                await message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
+                await message.reply_to_message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
                 clear_cache(message.chat.id)
             else:
-                await message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
+                await message.reply_to_message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
                 await try_to_delete(message.chat.id, cache.get('setup'))
     else:
-        await message.reply(translate[lang]["setup"][3])
+        await message.reply_to_message.reply(translate[lang]["setup"][3])
+    await try_to_delete(message.chat.id, cache.get('setup'))
+    
 
 @dp.callback_query_handler(lambda c: c.data.startswith('list_notification'))
 async def list_notifications_callback(callback: types.CallbackQuery):
