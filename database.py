@@ -8,7 +8,7 @@ db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
 translate_default = [t for t in json.load(open('getgems.json', 'r', encoding='utf-8'))["translate"]][0] or "en"
 
 #logger
-def get_logger(file_level=logging.INFO, base_level=logging.INFO):
+def get_logger(file_level=logging.ERROR, base_level=logging.INFO):
     # Создаем логгер
     logger = logging.getLogger("logger")
     logger.setLevel(base_level)  # Устанавливаем базовый уровень логирования
