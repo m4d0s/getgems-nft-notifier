@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS "price" (
 
 CREATE TABLE IF NOT EXISTS "proxy" (
     "link" TEXT NOT NULL,
-    "work" INTEGER NOT NULL
+    "work" INTEGER NOT NULL DEFAULT 0,
+	"version" TEXT NOT NULL DEFAULT "ipv4"
 );
 
 CREATE TABLE IF NOT EXISTS "config" (
