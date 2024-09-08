@@ -321,7 +321,7 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
             return []
         elif chat.permissions and cache.get(f'{sender["telegram_id"]}_error'):
             await bot.delete_message(chat_id=sender['telegram_user'], message_id=cache[f'{sender["telegram_id"]}_error'])
-            del cache[f'{sender["telegram_id"]}_error']
+            cache.pop(f'{sender["telegram_id"]}_error', None)
 
         # Получаем историю для текущего отправителя
         history = await get_new_history(session, sender, config['ton_api'], first)
