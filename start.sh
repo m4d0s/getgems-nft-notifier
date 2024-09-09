@@ -7,5 +7,5 @@ python3 -m pip install --upgrade pip
 pip3 install -r req.txt
 
 # Запускаем telegram.py в фоне
-python3 telegram.py
+python3 telegram.py &
 
