@@ -1,10 +1,9 @@
 import aiohttp
 import json
-import sqlite3
 import asyncio
 import socket
 from database import get_logger
-from proxy import is_local_address, get_free_proxy, set_proxy_used
+from proxy import get_free_proxy, set_proxy_used
 
 config = json.load(open('getgems.json', 'r', encoding='utf-8'))
 db_path, ipv6_mask, api_url = config['db_path'], config['ipv6'], config['api_url']
@@ -12,11 +11,13 @@ max_retries, initial_sleep, max_concurrent_requests = 5, 5, 10
 semaphore = asyncio.Semaphore(max_concurrent_requests)
 logger = get_logger()
 
-async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: int = 3, sleep: int = 1, proxy: bool = True) -> dict | None:
+async def get_responce(json_data: dict, tries: int = 3, sleep: int = 1, proxy: bool = True) -> dict:
     proxy_url = None
     data_return = None
-    
-    async def _make_request(session: aiohttp.ClientSession, json_data: dict, proxy_url: str = None, sleep: int = 1, tries: int = 3, semaphore = semaphore) -> dict | None:
+    _proxy = get_free_proxy(full=True)  # Assuming this is an existing function
+
+    async def _make_request(session: aiohttp.ClientSession, proxy_url: str = None,
+                            json_data=json_data, sleep=sleep, tries=tries) -> dict:
         headers = {
             'Content-Type': 'application/json',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -24,13 +25,13 @@ async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: i
         error = None
         for attempt in range(1, tries + 1):
             if attempt > 1:
-                logger.info(f"Retry #{attempt} after {sleep} seconds")
+                logger.info(f"Retry #{attempt} after {sleep} seconds")  # Assuming logger exists
             try:
-                async with semaphore:  # Ограничение параллелизма
+                async with semaphore:  # Ensure semaphore is defined or passed properly
                     async with session.post(api_url, json=json_data, headers=headers, proxy=proxy_url) as response:
-                        response.raise_for_status()
+                        response.raise_for_status()  # Raises an error for bad responses
                         data = await response.json()
-                        
+
                         if 'errors' in data:
                             logger.error(f"Error in response: {data['errors']}")
                             return None
@@ -39,23 +40,21 @@ async def get_responce(session: aiohttp.ClientSession, json_data: dict, tries: i
                 error = e
                 logger.error(f"Request failed: {e}. Retrying in {sleep} seconds...")
                 await asyncio.sleep(sleep)
-                sleep = min(sleep * 2, 60)  # Увеличиваем время задержки с ограничением до 60 сек
+                sleep = min(sleep * 2, 60)  # Incremental backoff
         logger.error(f"Failed after {tries} attempts: {error}")
         return None
 
-    # Если маска IPv6 задана и это не локальный адрес
-    if ipv6_mask and not is_local_address(ipv6_mask):
-        ipv6_addr = get_free_proxy(version='ipv6') #await generate_ipv6(ipv6_mask)
-        connector = aiohttp.TCPConnector(ssl=False, local_addr=(ipv6_addr, 0, 0, 0), family=socket.AddressFamily.AF_INET6)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            data_return = await _make_request(session, json_data)
-    elif proxy:
-        proxy_url = get_free_proxy()
-        data_return = await _make_request(session, json_data, proxy_url)
+    # Check if the proxy is valid and IPv6 logic
+    loc_addr = (_proxy[0], 0, 0, 0) if _proxy and _proxy[2] == 'ipv6' else None
+    family = socket.AddressFamily.AF_INET6 if _proxy and _proxy[2] == 'ipv6' else socket.AddressFamily.AF_INET
+    connector = aiohttp.TCPConnector(ssl=False, local_addr=loc_addr, family=family)
 
-    set_proxy_used(proxy_url, 0)
-    # await manage_ipv6_address(ipv6_addr, only_del=True)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        proxy_url = _proxy[0] if proxy and _proxy else None
+        data_return = await _make_request(session=session, json_data=json_data, proxy_url=proxy_url)
+        set_proxy_used(proxy_url, 0)  # Assuming this function exists
     return data_return
+
 
 async def coinmarketcap_price(cmc_api, ids) -> dict:
     apiurl = 'https://pro-api.coinmarketcap.com'

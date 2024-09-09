@@ -29,7 +29,7 @@ def is_local_address(ipv6_address):
     return False
 
 #db
-def get_free_proxy(version='ipv4'):
+def get_free_proxy(version='ipv4', full = False):
     if ipv6_mask and not is_local_address(ipv6_mask):
         version = 'ipv6'
     with sqlite3.connect(config['db_path']) as conn:
@@ -41,9 +41,11 @@ def get_free_proxy(version='ipv4'):
             row = cur.fetchone()
         else:
             set_proxy_used(row[0])
-        return row[0] if row else None
+        return row if full else row[0] if row else None
 
 def set_proxy_used(link, used=1):
+    if not link:
+        return
     with sqlite3.connect(config['db_path']) as conn:
         cur = conn.cursor()
         cur.execute(f'UPDATE proxy SET work = {used} WHERE link = "{link}"')

@@ -269,9 +269,9 @@ async def send_notify(data: NftItem, chat_id: int, lang: str, tz: int, retries=3
             await asyncio.sleep(1)
     return False
 
-async def nft_history_notify(session: aiohttp.ClientSession, history_item: HistoryItem, chat_id: int, lang: str, tz: int = 0):
+async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str, tz: int = 0):
     try:
-        nft = await get_nft_info(session, history_item)
+        nft = await get_nft_info(history_item)
         if nft is None:
             logger.error(f"Failed to get NFT info: {history_item}")
             return
@@ -293,11 +293,12 @@ async def nft_history_notify(session: aiohttp.ClientSession, history_item: Histo
     except Exception as e:
         logger.error(f"Error in nft_history_notify: {e}")
 
-async def prepare_notify(session: aiohttp.ClientSession, first=10):
+async def prepare_notify(first=10):
     count = 0
     history_items = []
     senders_data = get_sender_data()
     senders_data = [s for s in senders_data if all(s[k] is not None for k in s.keys())]
+    logger.info("Start checking for new history data...")
 
     async def gather_history_for_sender(sender: dict) -> list[tuple]:
         cache = get_cache(sender['telegram_user'])
@@ -329,7 +330,7 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
             cache.pop(f'{sender["telegram_id"]}_error', None)
 
         # Получаем историю для текущего отправителя
-        history = await get_new_history(session, sender, config['ton_api'], first)
+        history = await get_new_history(sender, config['ton_api'], first)
         
         # Возвращаем историю для обработки
         return [(h, sender) for h in history]
@@ -352,7 +353,6 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
                     sender['last_time'] = now()  # Обновляем напрямую
                 else:
                     await nft_history_notify(
-                        session=session,
                         history_item=history,
                         chat_id=sender['telegram_id'],
                         lang=sender['language'],
@@ -374,19 +374,13 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
     # Обновляем данные отправителей
     update_senders_data(senders_data)
     enter_last_time()
-
+    logger.info(f"Notification process ended, total notifications: {count}, now timestamp {get_last_time()} ({number_to_date(get_last_time())})")
     return count
-
-async def history_notify(counter=0):
-    async with aiohttp.ClientSession() as session:
-        logger.info("Start checking for new history data...")
-        count = await prepare_notify(session)
-        logger.info(f"Notification process ended, total notifications: {count}, now timestamp {get_last_time()} ({number_to_date(get_last_time())})")
- 
- 
- 
- 
         
+ 
+ 
+ 
+   
 # Setup functions
 def language_keyboard(id:int = -1):
     keyboard = InlineKeyboardMarkup(row_width=1)
@@ -479,8 +473,7 @@ async def settings(query: types.CallbackQuery):
     if can_setup:
         address = sender['collection_address']
         text = f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][1]}</b>\n\n"
-        async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=address)
+        collection = await get_collection_info(collection_address=address)
         if collection and address_converter(collection.address) == address_converter(address):
             text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][2])}: {collection.name}\n"
             text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
@@ -517,18 +510,17 @@ async def handle_reply(message: types.Message):
         await message.reply(translate[lang]["setup"][1])
         return
     if address_converter(message.text):
-        async with aiohttp.ClientSession() as session:
-            collection = await get_collection_info(session=session, collection_address=message.text)
-            sender["name"] = collection.name
-            sender['telegram_user'] = message.from_user.id
-            sender['collection_address'] = message.text
-            if not get_sender_data(address=message.text, chat_id=message.chat.id):
-                set_sender_data(sender, id = cache.get('sender'))
-                await message.reply_to_message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
-                clear_cache(message.chat.id)
-            else:
-                await message.reply_to_message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
-                await try_to_delete(message.chat.id, cache.get('setup'))
+        collection = await get_collection_info(collection_address=message.text)
+        sender["name"] = collection.name
+        sender['telegram_user'] = message.from_user.id
+        sender['collection_address'] = message.text
+        if not get_sender_data(address=message.text, chat_id=message.chat.id):
+            set_sender_data(sender, id = cache.get('sender'))
+            await message.reply_to_message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
+            clear_cache(message.chat.id)
+        else:
+            await message.reply_to_message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
+            await try_to_delete(message.chat.id, cache.get('setup'))
     else:
         await message.reply_to_message.reply(translate[lang]["setup"][3])
     await try_to_delete(message.chat.id, cache.get('setup'))
@@ -550,13 +542,15 @@ async def inline_link_preview(query: types.InlineQuery):
     address = address_converter(query.query, format=AddressType.Bouncable)
     if not address:
         return
-    async with aiohttp.ClientSession() as session:
-        nft = asyncio.create_task(get_nft_info(session, address))
-        await asyncio.sleep(5)
-        if nft.done():
-            nft = nft.result()
-        else:
-            nft = None
+    
+    nft = asyncio.create_task(get_nft_info(address))
+    await asyncio.sleep(5)
+    
+    if nft.done():
+        nft = nft.result()
+    else:
+        nft = None
+        
     if not nft:
         link = false_inline['link']
         title = false_inline['title']
@@ -610,7 +604,7 @@ async def main():
     await prepare()
     # clear_bad_senders()
     asyncio.create_task(run_periodically(300, enter_cmc_price))
-    asyncio.create_task(run_periodically(5, history_notify))
+    asyncio.create_task(run_periodically(5, prepare_notify))
 
     await dp.start_polling()
 
