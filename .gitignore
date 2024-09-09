@@ -167,6 +167,7 @@ launch.json
 *.db-journal
 *.db-wal
 *.db-shm
+env-nft
 #test.py
 
 #vs

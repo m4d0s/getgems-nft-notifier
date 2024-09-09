@@ -12,8 +12,6 @@ semaphore = asyncio.Semaphore(max_concurrent_requests)
 logger = get_logger()
 
 async def get_responce(json_data: dict, tries: int = 3, sleep: int = 1, proxy: bool = True) -> dict:
-    proxy_url = None
-    data_return = None
     _proxy = get_free_proxy(full=True)  # Assuming this is an existing function
 
     async def _make_request(session: aiohttp.ClientSession, proxy_url: str = None,
@@ -50,10 +48,10 @@ async def get_responce(json_data: dict, tries: int = 3, sleep: int = 1, proxy: b
     connector = aiohttp.TCPConnector(ssl=False, local_addr=loc_addr, family=family)
 
     async with aiohttp.ClientSession(connector=connector) as session:
-        proxy_url = _proxy[0] if proxy and _proxy else None
+        proxy_url = _proxy[0] if proxy and _proxy[2] == 'ipv4' else None
         data_return = await _make_request(session=session, json_data=json_data, proxy_url=proxy_url)
         set_proxy_used(proxy_url, 0)  # Assuming this function exists
-    return data_return
+        return data_return
 
 
 async def coinmarketcap_price(cmc_api, ids) -> dict:
