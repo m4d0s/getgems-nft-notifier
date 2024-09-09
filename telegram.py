@@ -19,7 +19,7 @@ from proxy import prepare
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, RetryAfter,
+from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, RetryAfter, BadRequest,
                                       MessageToEditNotFound, MessageCantBeDeleted, MessageCantBeEdited, UserDeactivated)
 
 
@@ -36,6 +36,7 @@ false_inline = config.pop('false_inline')
 config = fetch_config_data()
 bot = Bot(config['bot_api'])
 bot_info = asyncio.get_event_loop().run_until_complete(bot.get_me())
+invite = f"https://t.me/{bot_info.username}?startgroup=true&admin=post_messages+edit_messages+delete_messages"
 dp = Dispatcher(bot)
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
@@ -168,7 +169,7 @@ async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = 
     except ChatNotFound:
         logger.warning("Chat ({user_id}) not found".format(user_id=chat_id))
     except RetryAfter as e:
-        asyncio.sleep(e.timeout + random.random())
+        asyncio.sleep(e.timeout + 1 + random.random())
         await send()
     except Exception as e:
         error_text =  str(e)
@@ -245,7 +246,7 @@ async def send_notify(data: NftItem, chat_id: int, lang: str, tz: int, retries=3
     ad_button = InlineKeyboardButton(ad[1], url=ad[2])
     keyboard.add(ad_button)
 
-    setup_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=f"https://t.me/{bot_info.username}?startgroup=true&admin=post_messages+edit_messages+delete_messages")
+    setup_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=invite)
     keyboard.add(setup_button)
 
     text = data.notify_text(tz=tz, lang=lang)
@@ -300,17 +301,21 @@ async def prepare_notify(session: aiohttp.ClientSession, first=10):
 
     async def gather_history_for_sender(sender: dict) -> list[tuple]:
         cache = get_cache(sender['telegram_user'])
+        lang = return_chat_language(sender['telegram_id'])
         try:
             chat = await bot.get_chat(sender['telegram_id'])
+        except (ChatNotFound, BadRequest):
+            delete_senders_data(id=sender['id'])
+            keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton(translate[lang]['tg_util'][3], url=invite))
+            await new_message(text=f"You deleted me from the chat {snippet(sender['telegram_id'])}\nPlease let me back.", 
+                              chat_id=sender['telegram_user'],
+                              keyboard=keyboard)
+            return []
         except Exception as e:
             chat = None
             logger.error(f"Error in prepare_notify: {e}")
-        
-        if not chat:
-            delete_senders_data(id=sender['id'])
-            await new_message(text="You deleted me from the chat? Please let me back.", chat_id=sender['telegram_user'])
-            return []
-        elif chat.permissions and chat.permissions.can_send_messages is False:
+            
+        if not chat or chat and chat.permissions and chat.permissions.can_send_messages is False:
             if not cache.get(f'{sender["telegram_id"]}_error'):
                 MESS = await new_message(
                     text="You haven't given me permission to send messages.",
