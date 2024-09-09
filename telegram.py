@@ -602,7 +602,7 @@ async def inline_link_preview(query: types.InlineQuery):
 async def main():
     logger.info(f"\n\n----- Start of new session, version: {app_version}, now timestamp: {get_last_time()}, date: {number_to_date(get_last_time())} -----")
     await prepare()
-    # clear_bad_senders()
+    clear_bad_senders()
     asyncio.create_task(run_periodically(300, enter_cmc_price))
     asyncio.create_task(run_periodically(5, prepare_notify))
 
