@@ -3,8 +3,8 @@ import re
 import json
 import aiofiles
 import traceback
-import aiohttp
 import random
+import time
 
 from date import now, number_to_date
 from database import (fetch_config_data, get_last_time, get_ad, enter_last_time, enter_price, update_senders_data, 
@@ -18,9 +18,8 @@ from responce import coinmarketcap_price
 from proxy import prepare
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.utils.exceptions import (MessageNotModified, MessageToDeleteNotFound, ChatNotFound, BotBlocked, RetryAfter, BadRequest,
-                                      MessageToEditNotFound, MessageCantBeDeleted, MessageCantBeEdited, UserDeactivated)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram.exceptions import TelegramNotFound, TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
 
 
 logger = get_logger()
@@ -30,18 +29,21 @@ local = config.pop('local')
 translate = config.pop('translate')
 snippet = config.pop('snippets')
 false_inline = config.pop('false_inline')
-
+notify_settings = config.pop('notify_setup')
+DEFAULT_PARSE_MODE = "HTML"
+DISABLE_WEB_PAGE_PREVIEW = True
 
 # Bot setup
 config = fetch_config_data()
 bot = Bot(config['bot_api'])
 bot_info = asyncio.get_event_loop().run_until_complete(bot.get_me())
 invite = f"https://t.me/{bot_info.username}?startgroup=true&admin=post_messages+edit_messages+delete_messages"
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
 elligible = [HistoryType.Sold, HistoryType.PutUpForSale, HistoryType.PutUpForAuction]
 price_ids = [11419, 28850, 825, 1027, 1]
 app_version = "0.9a"
+
 
 class FilesType:
     NONE = 0
@@ -54,7 +56,7 @@ class FilesType:
 # Helpful functions
 async def can_setup_bot(message:types.Message) -> bool:
     user = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
-    return user.status in ['creator', 'administrator']
+    return user.status in ['creator', 'administrator'] and not user.is_anonymous
 
 async def can_setup_notif(message:types.Message, sender_id:int) -> bool:
     sender = get_sender_data(id=sender_id)[0]
@@ -63,16 +65,17 @@ async def can_setup_notif(message:types.Message, sender_id:int) -> bool:
 
 def to_bot_or_not(message:types.Message, command:str = None) -> bool:
     if not command:
-        command = message.get_command(pure=True)
+        command = message.text.split()[0].split('/')[1].split('@')[0]
         if not command:
             return None
     return message.text.startswith(f'/{command}@{bot_info.username}') \
-        or message.text == f'/{command}' and '@' not in message.text
+        or message.text.startswith(f'/{command}') and '@' not in message.text
 
 def is_command(message:types.Message, command:str) -> bool:
     is_this_command = message.text.startswith(f'/{command}')
-    is_this_to_bot = to_bot_or_not(message)
-    return all([is_this_command, is_this_to_bot])
+    if not is_this_command:
+        return False
+    return to_bot_or_not(message)
 
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
@@ -104,9 +107,7 @@ async def try_to_delete(chat_id:int, message_id:int) -> bool:
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
         return True
-    except MessageToDeleteNotFound:
-        return False
-    except MessageCantBeDeleted:
+    except (TelegramNotFound, TelegramForbiddenError):
         return False
     except Exception as e:
         error_text =  str(e)
@@ -118,59 +119,58 @@ async def try_to_edit(text:str, chat_id:int, message_id:int, keyboard: InlineKey
         logger.debug('Message ID is None to edit in chat ' + str(chat_id))
         return False
     try:
-        await bot.edit_message_text(text, chat_id, message_id, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        await bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
         return True
-    except MessageNotModified:
-        return False
-    except MessageToEditNotFound:
-        return False
-    except MessageCantBeEdited:
+    except (TelegramNotFound, TelegramForbiddenError):
         return False
     except Exception as e:
         error_text =  str(e)
         logger.error(f'Error sending message in chat {chat_id}: {error_text}')
         return
     
-async def new_message(text: str, chat_id: int, keyboard: InlineKeyboardMarkup = None, disable_preview:bool = True, file_type: FilesType = FilesType.NONE, file = None, parse_mode = ParseMode.HTML) -> types.Message:
+async def new_message(text: str, chat_id: int, thread_id: int = -1 ,keyboard: InlineKeyboardMarkup = None, file_type: FilesType = FilesType.NONE, file = None) -> types.Message:
     async def send():
         if file_type == FilesType.IMAGE:
             return await bot.send_photo(caption=html_back_escape(text), 
-                                         chat_id=chat_id, 
-                                         parse_mode=parse_mode, 
+                                         chat_id=chat_id,
                                          reply_markup=keyboard, 
-                                         photo=file)
+                                         photo=file,
+                                         message_thread_id=thread_id,
+                                         parse_mode=DEFAULT_PARSE_MODE)
         elif file_type == FilesType.VIDEO:
             return await bot.send_video(caption=html_back_escape(text), 
                                          chat_id=chat_id, 
-                                         parse_mode=parse_mode, 
                                          reply_markup=keyboard, 
-                                         video=file)
+                                         video=file,
+                                         message_thread_id=thread_id,
+                                         parse_mode=DEFAULT_PARSE_MODE)
         elif file_type == FilesType.DOCUMENT:
             return await bot.send_document(caption=html_back_escape(text), 
-                                           chat_id=chat_id, 
-                                           parse_mode=parse_mode, 
+                                           chat_id=chat_id,
                                            reply_markup=keyboard, 
-                                           document=file)
+                                           document=file,
+                                           message_thread_id=thread_id,
+                                           parse_mode=DEFAULT_PARSE_MODE)
         elif file_type == FilesType.NONE:
             return await bot.send_message(text=html_back_escape(text), 
-                                          chat_id=chat_id, 
-                                          parse_mode=parse_mode, 
-                                          disable_web_page_preview=disable_preview, 
-                                          reply_markup=keyboard)        
+                                          chat_id=chat_id,
+                                          reply_markup=keyboard,
+                                          message_thread_id=thread_id,
+                                          parse_mode=DEFAULT_PARSE_MODE,
+                                          disable_web_page_preview=DISABLE_WEB_PAGE_PREVIEW)        
     
+    thread_id = None if thread_id == -1 else thread_id
     try:
-        await send()
-    # except MessageIsTooLong:
-    #     logger.warning('Message is too long to send in chat ' + str(chat_id))
-    except UserDeactivated:
-        logger.warning("User ({user_id}) deactivated".format(user_id=chat_id))
-    except BotBlocked:
-        logger.warning("Bot was blocked by user ({user_id})".format(user_id=chat_id))
-    except ChatNotFound:
-        logger.warning("Chat ({user_id}) not found".format(user_id=chat_id))
-    except RetryAfter as e:
-        asyncio.sleep(e.timeout + 1 + random.random())
-        await send()
+        return await send()
+    except TelegramForbiddenError as e:
+        logger.warning("Bot was blocked by user ({user_id}): {e}".format(user_id=chat_id, e=e))
+    except TelegramNotFound as e:
+        logger.warning("Chat ({user_id}) not found: {e}".format(user_id=chat_id, e=e))
+    except TelegramRetryAfter as e:
+        asyncio.sleep(int(e.retry_after) + 1 + random.random())
+        return await send()
+    except TelegramAPIError as e:
+        logger.warning("Some error occured in chat ({user_id}): {e}".format(user_id=chat_id, e=e))
     except Exception as e:
         error_text =  str(e)
         logger.error(f'Error sending message in chat {chat_id}: {error_text}')
@@ -199,7 +199,7 @@ async def send_error_message(chat_id:int, message:str, e:Exception = None, only_
     await enter_cache(chat_id, cache) ##write
     return ERROR_MESS
 
-@dp.callback_query_handler(lambda c: c.data == 'delete_message')
+@dp.callback_query(lambda c: c.data == 'delete_message')
 async def delete_message(call: types.CallbackQuery):
     try:
         # Удаляем текущее сообщение
@@ -221,55 +221,58 @@ async def delete_message(call: types.CallbackQuery):
 
 
 # History notification functions
-async def send_notify(data: NftItem, chat_id: int, lang: str, tz: int, retries=3):
-    if data.sale is None:
-        logger.error(f"Sale is None: {data}")
+async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1, tz: int = 0, retries=3):
+    if nft.sale is None:
+        logger.error(f"Sale is None: {nft}")
         return -1
 
     bot_info = await bot.get_me()
-    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
-    getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if data.marketplace == MarketplaceType.Getgems or "getgems" in data.sale.link else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=data.sale.link)}"
-    getgems_button = InlineKeyboardButton(getgems_text, url=data.sale.link)
-    tonviewer_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{data.address}")
-    keyboard.add(getgems_button, tonviewer_button)
+    getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if nft.marketplace == MarketplaceType.Getgems or "getgems" in nft.sale.link else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=nft.sale.link)}"
+    getgems_button = InlineKeyboardButton(getgems_text, url=nft.sale.link)
+    tonviewer_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
+    keyboard.inline_keyboard.append([getgems_button, tonviewer_button])
 
-    collection_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][2]} Getgems", url=data.collection.get_url())
-    keyboard.add(collection_button)
+    collection_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][2]} Getgems", url=nft.collection.get_url())
+    keyboard.inline_keyboard.append([collection_button])
 
-    ad = list(get_ad())
-    if ad[2] == "" or ad[2] == "{bot.link}":
-        ad[2] = f"https://t.me/{bot_info.username}"
-        ad[1] = translate[lang]['tg_util'][4]
-    else:
-        ad[1] = f"AD: {ad[1]}"
-    ad_button = InlineKeyboardButton(ad[1], url=ad[2])
-    keyboard.add(ad_button)
+    ad = get_ad()
+    if ad and notify_settings['ads']:
+        curr_ad = ad[random.randint(0, len(ad) - 1)]
+        if curr_ad['link'] == '{bot.link}':
+            curr_ad['link'] = 'https://t.me/' + bot_info.username
+            curr_ad['name'] = translate[lang]['tg_util'][4]
+        else:
+            curr_ad['name'] = f"AD: {curr_ad['name']}"
+        ad_button = InlineKeyboardButton(curr_ad['name'], url=curr_ad['link'])
+        keyboard.inline_keyboard.append([ad_button])
 
-    setup_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=invite)
-    keyboard.add(setup_button)
+    if notify_settings['setup']:
+        setup_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=invite)
+        keyboard.inline_keyboard.append([setup_button])
 
-    text = data.notify_text(tz=tz, lang=lang)
-    content = data.get_content_url()
+    text = nft.notify_text(tz=tz, lang=lang)
+    content = nft.get_content_url()
 
     for _ in range(retries + 1):
         try:
-            if data.content.type == ContentType.Image:
-                photo = content if "https://" in content else data.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo)
-            elif data.content.type == ContentType.Video:
-                video = content if "https://" in content else data.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video)
+            if nft.content.type == ContentType.Image:
+                photo = content if "https://" in content else nft.get_content_url(original=False)
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo, thread_id=thread_id)
+            elif nft.content.type == ContentType.Video:
+                video = content if "https://" in content else nft.get_content_url(original=False)
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video, thread_id=thread_id)
             else:
-                async with aiofiles.open(data.content.original, 'rb') as photo:
-                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo)
+                async with aiofiles.open(nft.content.original, 'rb') as photo:
+                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo, thread_id=thread_id)
             return True
         except Exception as e:
             logger.error(e)
             await asyncio.sleep(1)
     return False
 
-async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str, tz: int = 0):
+async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str, thread_id: int = -1, tz: int = 0):
     try:
         nft = await get_nft_info(history_item)
         if nft is None:
@@ -288,7 +291,7 @@ async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str,
             logger.info(f"Another action happened: {history_item}")
             return
 
-        await send_notify(data=nft, chat_id=chat_id, lang=lang, tz=tz)
+        await send_notify(nft=nft, chat_id=chat_id, lang=lang, tz=tz, thread_id=thread_id)
         
     except Exception as e:
         logger.error(f"Error in nft_history_notify: {e}")
@@ -305,25 +308,18 @@ async def prepare_notify(first=10):
         lang = return_chat_language(sender['telegram_id'])
         try:
             chat = await bot.get_chat(sender['telegram_id'])
-        except (ChatNotFound, BadRequest):
+        except (TelegramNotFound, TelegramForbiddenError):
             delete_senders_data(id=sender['id'])
-            keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton(translate[lang]['tg_util'][3], url=invite))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(translate[lang]['tg_util'][3], url=invite)]])
             await new_message(text=f"You deleted me from the chat {snippet(sender['telegram_id'])}\nPlease let me back.", 
                               chat_id=sender['telegram_user'],
-                              keyboard=keyboard)
+                              keyboard=keyboard, thread_id=sender['topic_id'])
             return []
         except Exception as e:
             chat = None
             logger.error(f"Error in prepare_notify: {e}")
             
         if not chat or chat and chat.permissions and chat.permissions.can_send_messages is False:
-            if not cache.get(f'{sender["telegram_id"]}_error'):
-                MESS = await new_message(
-                    text="You haven't given me permission to send messages.",
-                    chat_id=sender['telegram_user'],
-                    keyboard=quit_keyboard(sender['telegram_id'])
-                )
-                cache[f'{sender["telegram_id"]}_error'] = MESS.message_id
             return []
         elif chat.permissions and cache.get(f'{sender["telegram_id"]}_error'):
             await bot.delete_message(chat_id=sender['telegram_user'], message_id=cache[f'{sender["telegram_id"]}_error'])
@@ -356,7 +352,8 @@ async def prepare_notify(first=10):
                         history_item=history,
                         chat_id=sender['telegram_id'],
                         lang=sender['language'],
-                        tz=sender['timezone']
+                        tz=sender['timezone'],
+                        thread_id=sender['topic_id']
                     )
                     count += 1
                     sender['last_time'] = history.time  # Обновляем напрямую
@@ -382,72 +379,139 @@ async def prepare_notify(first=10):
  
    
 # Setup functions
-def language_keyboard(id:int = -1):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    for language in translate:
-        keyboard.add(InlineKeyboardButton(translate[language]["Name"], callback_data=f'lang_{language}{"_" + str(id) if id > -1 else ""}'))
+def language_keyboard(id: int = -1) -> InlineKeyboardMarkup:
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])  # You can set row_width as needed
+    for language, details in translate.items():
+        button_text = details.get("Name", "Unknown")
+        callback_data = f'lang_{language}{"_" + str(id) if id > -1 else ""}'
+        button = InlineKeyboardButton(text=button_text, callback_data=callback_data)
+        keyboard.inline_keyboard.append([button])
     return keyboard
 
-def quit_keyboard(chat_id:int):
+def quit_keyboard(chat_id:int, key: InlineKeyboardMarkup = None):
     lang = return_chat_language(chat_id)
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[] if not key else key.inline_keyboard)
+    keyboard.inline_keyboard.append([InlineKeyboardButton(text=translate[lang]["Close"], callback_data='delete_message')])
     return keyboard
 
-@dp.message_handler(lambda message: is_command(message, 'start'))
-@dp.message_handler(lambda message: is_command(message, 'add_notification'))
-async def start_setup(message: types.Message):
-    can_setup = await can_setup_bot(message)
+async def is_bot_configured(message: types.Message):
+    is_setup = True
+    
+    lang = return_chat_language(message.chat.id)
+    text = translate[lang]['is_setup_complete'].split('\n')
+    text[0] = snippet['bold'].format(text=text[0])
+    text[1] = snippet['italic'].format(text=text[1])
+    text = '\n\n'.join(text)
+    key = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=translate[lang]['Close'], callback_data='delete_message')]])
+    keyboard = quit_keyboard(message.chat.id, key)
+    
+    if message.chat.type == 'private':
+        await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard, thread_id=message.message_thread_id)
+        return
+    
+    checker = await bot.get_chat_member(chat_id=message.chat.id, user_id=bot_info.id)
+    
+    # Проверяем статус бота (должен быть администратором или создателем)
+    if checker.status not in ['creator', 'administrator']:
+        is_setup = False
+    else:
+        chat = await bot.get_chat(chat_id=message.chat.id)
+
+        # Проверяем конкретные права
+        can_send = chat.permissions.can_send_messages if chat.permissions else False
+        # can_edit = checker.can_edit_messages if checker else False
+        can_delete = checker.can_delete_messages if checker else False
+        is_setup = all([can_send, can_delete])
+    
+    if not is_setup:
+        lang = return_chat_language(message.chat.id)
+        keyboard = quit_keyboard(message.chat.id)
+        await new_message(chat_id=message.chat.id, text=text, keyboard=keyboard, thread_id=message.message_thread_id)
+        await new_message(chat_id=message.from_user.id, text=text, keyboard=keyboard, thread_id=message.message_thread_id)
+    
     await try_to_delete(message.chat.id, message.message_id)
-    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
+    return is_setup
+
+@dp.message(lambda message: is_command(message, 'start'))
+async def start_setup(message: types.Message):
+    if not message.chat.type == 'private':
+        await add_setup(message)
+    else:
+        await is_bot_configured(message)
+
+@dp.message(lambda message: is_command(message, 'add_notification'))
+async def add_setup(message: types.Message):
+    can_setup = await can_setup_bot(message)
+    is_configured = await is_bot_configured(message)
+    await try_to_delete(message.chat.id, message.message_id)
+    if not message.chat.type == 'private' and all([can_setup, is_configured]):
         logger.info(f"Bot added to a new chat: {message.chat.id}")
-        senders = get_sender_data(chat_id=message.chat.id, new = True)
+        senders = get_sender_data(chat_id=message.chat.id, thread_id=message.message_thread_id or -1, new = True)
         sender = senders[0]
         sender['telegram_id'] = message.chat.id
+        sender['topic_id'] = message.message_thread_id or -1
         sender['telegram_user'] = message.from_user.id
         id = sender.get('id') or -1
         lang = return_chat_language(message.chat.id)
-        setup_message = await new_message (chat_id=message.chat.id, text=translate[lang]['start_setup'], keyboard=language_keyboard(id))
-        messid = setup_message.message_id
+        setup_message = await new_message(chat_id=message.chat.id, text=translate[lang]['start_setup'], keyboard=language_keyboard(id), thread_id=message.message_thread_id)
+        messid = setup_message.message_id or -1
 
-        enter_cache(message.chat.id, {"setup": messid, 'sender': id})
+        enter_cache(user_id=message.chat.id, keys={'sender': int(sender['id']), 'setup':  message.message_id})
         logger.info(f"Setup message sent with ID: {messid}")
-    
-@dp.message_handler(lambda message: is_command(message, 'list_notification'))
-async def list_notifications(message: types.Message, delete = False):
-    senders = get_sender_data(chat_id=message.chat.id)
-    if not message.chat.type == types.ChatType.PRIVATE:
+        
+    elif not can_setup:
         lang = return_chat_language(message.chat.id)
-        keyboard = InlineKeyboardMarkup()
-        valid = 0
-        for sender in senders:
-            if all(sender.get(x) is not None for x in sender):
-                valid += 1
-                if not delete:
-                    keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"setup_{sender['id']}"))
-                else:
-                    keyboard.add(InlineKeyboardButton(f"{sender['name']} ({short_address(sender['collection_address'])})", callback_data=f"delete_{sender['id']}"))
-        if not delete:
-            keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'),
-                        InlineKeyboardButton(translate[lang]["Add"], callback_data='add_notification'))
-        else:
-            keyboard.add(InlineKeyboardButton(translate[lang]["Close"], callback_data='delete_message'))
-        text = snippet['bold'].format(text=(translate[lang]['settings'][0].format(count=valid) if not delete else translate[lang]['settings'][9]))
-        await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard)
-        await try_to_delete(message.chat.id, message.message_id)
+        text = translate[lang]['is_setup_complete'].split('\n')
+        text[0] = snippet['bold'].format(text=text[0])
+        text[1] = snippet['italic'].format(text=text[1])
+        text = '\n\n'.join(text)
+        await new_message(chat_id=message.chat.id, text=text, keyboard=quit_keyboard(message.chat.id), thread_id=message.message_thread_id)
+    
+@dp.message(lambda message: is_command(message, 'list_notification'))
+async def list_notifications(message: types.Message, delete = False):
+    
+    if not message.chat.type == 'private':
+        senders = get_sender_data(chat_id=message.chat.id, thread_id=message.message_thread_id or -1)
+    else:
+        senders = get_sender_data(user_id=message.chat.id)
+        
+    lang = return_chat_language(message.chat.id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    valid = 0
+    for sender in senders:
+        if all(sender.get(x) is not None for x in sender):
+            valid += 1
+            if message.chat.type == 'private':
+                try:
+                    _chat = await bot.get_chat(sender['telegram_id'])
+                except:
+                    _chat = None
+            else:
+                _chat = None
+            name = (_chat.full_name if _chat else "Chat ID: " + sender['telegram_id']) if message.chat.type == 'private' else short_address(sender['collection_address'])
+            if not delete:
+                keyboard.inline_keyboard.append([InlineKeyboardButton(f"{sender['name']} ({name})", callback_data=f"setup_{sender['id']}")])
+            else:
+                keyboard.inline_keyboard.append([InlineKeyboardButton(f"{sender['name']} ({name})", callback_data=f"delete_{sender['id']}")])
+    if not (delete or message.chat.type == 'private'):
+        keyboard.inline_keyboard.append([InlineKeyboardButton(translate[lang]["Add"], callback_data='add_notification')])
+    keyboard = quit_keyboard(message.chat.id, keyboard)
+    text = snippet['bold'].format(text=(translate[lang]['settings'][10 if message.chat.type == 'private' else 0].format(count=valid) if not delete else translate[lang]['settings'][9]))
+    await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard, thread_id=message.message_thread_id)
+    await try_to_delete(message.chat.id, message.message_id)
 
-@dp.message_handler(lambda message: is_command(message, 'delete_notification'))
+@dp.message(lambda message: is_command(message, 'delete_notification'))
 async def delete_notification_command(message: types.Message):
     await try_to_delete(message.chat.id, message.message_id)
     await list_notifications(message, delete=True)
 
-@dp.message_handler(lambda message: is_command(message, 'help'))
+@dp.message(lambda message: is_command(message, 'help'))
 async def help_note(message: types.Message):
     lang = return_chat_language(message.chat.id)
     keyboard = quit_keyboard(message.chat.id)
-    await new_message(text=translate[lang]['help_note'], chat_id=message.chat.id, keyboard=keyboard)
+    await new_message(text=translate[lang]['help_note'], chat_id=message.chat.id, keyboard=keyboard, thread_id=message.message_thread_id)
     
-@dp.callback_query_handler(lambda call: call.data.startswith('lang_'))
+@dp.callback_query(lambda call: call.data.startswith('lang_'))
 async def on_language_selected(call: CallbackQuery):
     can_setup = await can_setup_notif(call.message, int(call.data.split('_')[2]))
     if can_setup:
@@ -460,47 +524,46 @@ async def on_language_selected(call: CallbackQuery):
         sender['language'] = args[1]
         sender['telegram_id'] = call.message.chat.id
         sender['telegram_user'] = call.from_user.id
+        sender['topic_id'] = call.message.message_thread_id or -1
         sender_id = set_sender_data(sender)
         enter_cache(user_id=call.message.chat.id, keys={'sender': int(sender_id), 'setup':  call.message.message_id})
         await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
     else:
         await call.answer(translate[sender['language']]["setup"][1], show_alert=True)
 
-@dp.callback_query_handler(lambda query: query.data.startswith('setup_'))
+@dp.callback_query(lambda query: query.data.startswith('setup_'))
 async def settings(query: types.CallbackQuery):
     sender = get_sender_data(id=int(query.data.split('_')[1]))[0]
     can_setup = await can_setup_notif(query.message, sender['id'])
     if can_setup:
+        lang = return_chat_language(query.message.chat.id)
         address = sender['collection_address']
-        text = f"<b>{translate[return_chat_language(query.message.chat.id)]['settings'][1]}</b>\n\n"
+        text = f"<b>{translate[lang]['settings'][1]}</b>\n\n"
         collection = await get_collection_info(collection_address=address)
         if collection and address_converter(collection.address) == address_converter(address):
-            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][2])}: {collection.name}\n"
-            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
-            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][4])}: {collection.owner.link_user_text()}\n\n"
-            text += f"{snippet['bold'].format(text=translate[return_chat_language(query.message.chat.id)]['settings'][5])}: {collection.description}\n"
-            keyboard = InlineKeyboardMarkup(row_width=2)
-            keyboard.add(
-                # InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
-                InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")
-                )
-            keyboard.add(InlineKeyboardButton(f"{translate[return_chat_language(query.message.chat.id)]['settings'][8]}", callback_data="list_notification"))
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][2])}: {collection.name}\n"
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][4])}: {collection.owner.link_user_text()}\n\n"
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][5])}: {collection.description}\n"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[# InlineKeyboardButton(f"{translate[lang]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
+                                                InlineKeyboardButton(f"{translate[lang]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")]])
+            keyboard.inline_keyboard.append([InlineKeyboardButton(f"{translate[lang]['settings'][8]}", callback_data="list_notification")])
             await try_to_edit(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, keyboard=keyboard)      
             
-@dp.callback_query_handler(lambda c: c.data.startswith('delete_'))
+@dp.callback_query(lambda c: c.data.startswith('delete_'))
 async def delete_notification(callback: types.CallbackQuery):
     message = callback.message
     args = callback.data.split('_')[1:]
     sender = get_sender_data(id=int(args[0]))[0]
     can_setup = await can_setup_notif(message, int(args[0]))
-    if not message.chat.type == types.ChatType.PRIVATE and can_setup:
+    if not message.chat.type == 'private' and can_setup:
         delete_senders_data(id = args[0])
         text = f"{translate[return_chat_language(message.chat.id)]['delete']}: {snippet['bold'].format(text=sender['name'])}\n({snippet['code'].format(text=args[0])})"
-        await new_message(text=text, chat_id=message.chat.id, keyboard=quit_keyboard(message.chat.id))
+        await new_message(text=text, chat_id=message.chat.id, keyboard=quit_keyboard(message.chat.id), thread_id=message.message_thread_id)
 
     await try_to_delete(message.chat.id, message.message_id)
         
-@dp.message_handler(lambda message: message.reply_to_message and any(translate[x]["setup"][0] in message.reply_to_message.text for x in translate))
+@dp.message(lambda message: message.reply_to_message and any(translate[x]["setup"][0] in message.reply_to_message.text for x in translate if message.reply_to_message.text))
 async def handle_reply(message: types.Message):
     cache = get_cache(message.chat.id)
     sender = get_sender_data(id=cache.get('sender'))[0]
@@ -514,7 +577,7 @@ async def handle_reply(message: types.Message):
         sender["name"] = collection.name
         sender['telegram_user'] = message.from_user.id
         sender['collection_address'] = message.text
-        if not get_sender_data(address=message.text, chat_id=message.chat.id):
+        if not get_sender_data(address=message.text, chat_id=message.chat.id, thread_id=message.message_thread_id or -1):
             set_sender_data(sender, id = cache.get('sender'))
             await message.reply_to_message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
             clear_cache(message.chat.id)
@@ -526,18 +589,18 @@ async def handle_reply(message: types.Message):
     await try_to_delete(message.chat.id, cache.get('setup'))
     
 
-@dp.callback_query_handler(lambda c: c.data.startswith('list_notification'))
+@dp.callback_query(lambda c: c.data.startswith('list_notification'))
 async def list_notifications_callback(callback: types.CallbackQuery):
     message = callback.message
     await list_notifications(message)
 
-@dp.callback_query_handler(lambda c: c.data.startswith('add_notification'))
+@dp.callback_query(lambda c: c.data.startswith('add_notification'))
 async def add_notifications_callback(callback: types.CallbackQuery):
     message = callback.message
-    await start_setup(message)
+    await add_setup(message)
 
 # just inline
-@dp.inline_handler()
+@dp.inline_query()
 async def inline_link_preview(query: types.InlineQuery):
     address = address_converter(query.query, format=AddressType.Bouncable)
     if not address:
@@ -558,7 +621,7 @@ async def inline_link_preview(query: types.InlineQuery):
         thumb = false_inline['thumb']
         
         inline_button = InlineKeyboardButton(text="Getgems", url=link)
-        inline_keyboard = InlineKeyboardMarkup().add(inline_button)
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[inline_button]])
         
         result = types.InlineQuery
     
@@ -578,7 +641,7 @@ async def inline_link_preview(query: types.InlineQuery):
         thumb = nft.content.get_url()
     
         inline_button = InlineKeyboardButton(text="See on Getgems", url=link)
-        inline_keyboard = InlineKeyboardMarkup().add(inline_button)
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[[inline_button]])
         
         result = types.InlineQueryResultPhoto(
             id='true_inline',
@@ -589,7 +652,6 @@ async def inline_link_preview(query: types.InlineQuery):
             reply_markup=inline_keyboard,
             input_message_content=types.InputTextMessageContent(
                 message_text=nft.notify_text(),
-                parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             )
         )    
@@ -599,14 +661,25 @@ async def inline_link_preview(query: types.InlineQuery):
     
     
 # just main
-async def main():
+async def on_startup():
     logger.info(f"\n\n----- Start of new session, version: {app_version}, now timestamp: {get_last_time()}, date: {number_to_date(get_last_time())} -----")
     await prepare()
     clear_bad_senders()
     asyncio.create_task(run_periodically(300, enter_cmc_price))
-    asyncio.create_task(run_periodically(5, prepare_notify))
-
-    await dp.start_polling()
+    asyncio.create_task(run_periodically(notify_settings['delay'], prepare_notify))
+    
+async def main():
+    await on_startup()
+    await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    while True:
+        loop = asyncio.get_event_loop()
+        try:
+            loop.run_until_complete(main())
+        except (KeyboardInterrupt, SystemExit):
+            break
+        finally:
+            logger.warning("Telegram bot stopped! Retry in 30 sec")
+            time.sleep(30)
+            loop.close()

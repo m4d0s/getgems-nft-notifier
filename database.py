@@ -79,16 +79,24 @@ def get_last_time(db_path=db_path):
 
 
 #cache
-def enter_cache(user_id:int, keys:dict, db_path=db_path):
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        for k, v in keys.items():
-            v = str(v) if v is not None else None
-            cursor.execute("""
-            INSERT OR REPLACE INTO cache (name, value, user_id) 
-            VALUES (?, ?, ?)
-            """, (k, v, user_id))
-        conn.commit()
+
+def enter_cache(user_id: int, keys: dict, db_path: str = db_path):
+    insert = "INSERT INTO cache (name, value, user_id) VALUES (?, ?, ?)"
+    find = "SELECT * FROM cache WHERE name = ? AND user_id = ?"
+    update = "UPDATE cache SET value = ? WHERE name = ? AND user_id = ?"
+    for k, v in keys.items():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                v = str(v) if v is not None else None
+                prev = cursor.execute(find, (k, user_id)).fetchone()
+                if prev:
+                    cursor.execute(update, (v, k, user_id))
+                else:
+                    cursor.execute(insert, (k, v, user_id))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"An error occurred: {e}")
         
 def get_cache(user_id:int, db_path=db_path) -> dict:
     
@@ -162,17 +170,11 @@ def get_ad(db_path=db_path):
     
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM ads")
+        cursor.execute("SELECT * FROM ads WHERE start <= ? AND end >= ?", (now(), now()))
         ad = cursor.fetchall()
-    
-    ad_list = [list(row) for row in ad]
-    now_time = now()
-    
-    #id name link time start end approve
-    for i in ad[1:]:
-        if i[4] < now_time < i[5] and i[6] == 1:
-            return i
-    return ad_list[0]
+        header = [description[0] for description in cursor.description]
+        ad_list = [dict(zip(header, row)) for row in ad]
+        return ad_list
 
 
 
@@ -181,7 +183,7 @@ def update_senders_data(updated_senders_data:list, db_path=db_path) -> None:
     for send in updated_senders_data:
         set_sender_data(send, db_path, id = send['id'])
 
-def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path, new = False) -> list[dict]:
+def get_sender_data(address: str = None, chat_id: int = None, thread_id: int = None, id: int = None, user_id = None, db_path: str = db_path, new = False) -> list[dict]:
     query = "SELECT * FROM senders"
     conditions = []
     params = []
@@ -211,6 +213,12 @@ def get_sender_data(address: str = None, chat_id: int = None, id: int = None, db
     if id:
         conditions.append("id = ?")
         params.append(id)
+    if user_id:
+        conditions.append("telegram_user = ?")
+        params.append(user_id)
+    if thread_id:
+        conditions.append("topic_id = ?")
+        params.append(thread_id)
 
     # Добавляем условия к запросу, если они есть
     if conditions:
@@ -283,7 +291,7 @@ def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int =
         logger.error(f"An error occurred: {e}")
         return -1
 
-def delete_senders_data(address: str = None, chat_id: int = None, id: int = None, db_path: str = db_path) -> None:
+def delete_senders_data(address: str = None, chat_id: int = None, thread_id: int = None, id: int = None, user_id = None, db_path: str = db_path) -> None:
     # Ensure that at least one of the parameters is provided to avoid accidental mass deletion
     if not any([address, chat_id, id]):
         logger.error("At least one parameter (address, chat_id, id) must be provided.")
@@ -303,7 +311,13 @@ def delete_senders_data(address: str = None, chat_id: int = None, id: int = None
     if id:
         conditions.append("id = ?")
         params.append(id)
-
+    if user_id:
+        conditions.append("telegram_user = ?")
+        params.append(user_id)
+    if thread_id:
+        conditions.append("topic_id = ?")
+        params.append(thread_id)
+        
     # Only add WHERE clause if there are conditions
     if conditions:
         query += " WHERE " + " AND ".join(conditions)

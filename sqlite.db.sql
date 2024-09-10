@@ -35,11 +35,10 @@ CREATE TABLE IF NOT EXISTS "config" (
 );
 
 CREATE TABLE IF NOT EXISTS "cache" (
-    "user_id" INTEGER NOT NULL UNIQUE,
-    "name" INTEGER,
-    "value" TEXT,
-    PRIMARY KEY("user_id")
-);
+	"user_id"	INTEGER NOT NULL,
+	"name"	INTEGER,
+	"value"	TEXT
+)
 
 CREATE TABLE IF NOT EXISTS "senders" (
     "id" INTEGER NOT NULL UNIQUE,
@@ -50,6 +49,7 @@ CREATE TABLE IF NOT EXISTS "senders" (
     "language" INTEGER DEFAULT 'en',
     "timezone" INTEGER DEFAULT 0,
     "name" TEXT,
+    "topic_id" INTEGER DEFAULT -1,
     PRIMARY KEY("id" AUTOINCREMENT)
 );
 
@@ -62,8 +62,8 @@ VALUES
  ('bot_api','https://t.me/BotFather'),
  ('ton_api','https://tonconsole.com/'),
  ('cmc_api','https://pro.coinmarketcap.com/login/'),
- ('now','0'),
- ('dev','your_telegram_id');
+ ('dev','your_telegram_id'),
+ ('now','0');
 
 -- Завершаем транзакцию
 COMMIT;

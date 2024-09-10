@@ -748,10 +748,11 @@ async def get_nft_info(history: HistoryItem|str,
                        notloadedcontent=config['local']['NotLoaded']) -> NftItem:
   
     query = queries['get_nft_info']
+    collection_address = history.address if isinstance(history, HistoryItem) else history
     json_data = {
         "query": query,
         "variables": {
-            "address": history.address if isinstance(history, HistoryItem) else history,
+            "address": address_converter(collection_address, format=AddressType.Bouncable),
             "first": first,
             "width": width,
             "height": height
@@ -778,7 +779,7 @@ async def get_nft_info(history: HistoryItem|str,
 async def get_collection_info(collection_address: str) -> CollectionItem:
     query = queries['get_collection_info']
     variables = {
-        "address": collection_address
+        "address": address_converter(collection_address, format=AddressType.Bouncable)
     }
 
     data = await get_responce(json_data={"query": query, "variables": variables})
@@ -792,10 +793,10 @@ async def get_collection_info(collection_address: str) -> CollectionItem:
 
 # other funcs
 
-def address_converter(address, format:AddressType = AddressType.Unbouncable) -> str:
+def address_converter(address:str, format:AddressType = AddressType.Unbouncable) -> str:
     try:
         # Создаем объект Address из входного адреса
-        addr = Address(address)
+        addr = Address(address.strip())
         
         if format == AddressType.Bouncable:
             return addr.to_string(True, True, True)
