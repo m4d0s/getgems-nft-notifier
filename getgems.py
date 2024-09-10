@@ -503,6 +503,7 @@ class SaleItem:
       'royalty_fee': int(data['royaltyAmount']),
       'network_fee': int(data['networkFee']),
       })
+    self.type = data.get('type')
     
   def details(self, lang="en", tz = timezone.utc):
     text = [self.price.full_text(lang = lang) + "\n",
@@ -716,31 +717,50 @@ async def get_sale_info(history: HistoryItem | str, first=1):
 
 async def process_sale_data(data, owner, history, currency):
     sale = None
-    if data['__typename'] in ['NftSaleFixPrice', 'NftSaleFixPriceDisintar']:
+    sale_alias = ['NftSaleFixPrice', 'NftSaleFixPriceDisintar']
+    auc_alias = ['NftSaleAuction', 'TelemintAuction']
+    
+    # Determine marketplace type
+    _type = data['__typename']
+    if _type in [sale_alias[0], auc_alias[0]]:
+        _type = MarketplaceType.Getgems
+    else:
+        _type = MarketplaceType.Other
+    
+    # Process fixed price sales
+    if data['__typename'] in sale_alias:
         sale = SaleItem({
             **data,
-            "type": MarketplaceType.Getgems,
+            "type": _type,
             "status": NftStatusType.ForSale,
             "currency": currency,
             "nftOwnerAddressUser": owner,
             "address": history.address
         })
-    elif data['__typename'] in ['NftSaleAuction', 'TelemintAuction']:
+    
+    # Process auction sales
+    elif data['__typename'] in auc_alias:
         bid = None
         if data.get('lastBidUser'):
-          with aiohttp.ClientSession() as session:
-            last_bid_user = await get_user_info(session, data['lastBidUser']['wallet'])
-          bid = BidItem({'lastBidAddress': last_bid_user, 'lastBidAt': data['lastBidAt']})
+            async with aiohttp.ClientSession() as session:
+                last_bid_user = await get_user_info(session, data['lastBidUser']['wallet'])
+            bid = BidItem({
+                'lastBidAddress': last_bid_user,
+                'lastBidAt': data['lastBidAt']
+            })
+        
         sale = AuctionItem({
             **data,
-            "type": MarketplaceType.Other,
+            "type": _type,
             "status": NftStatusType.ForAuction,
             "currency": currency,
             "nftOwnerAddressUser": owner,
             "address": history.address,
             "bid": bid
         })
-    return [sale['type'], sale['status'], sale, history]
+    
+    # Return sale data
+    return [sale.type, sale.status, sale, history]
 
 
 async def get_nft_info(history: HistoryItem|str, 

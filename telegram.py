@@ -230,11 +230,11 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
     getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if nft.marketplace == MarketplaceType.Getgems or "getgems" in nft.sale.link else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=nft.sale.link)}"
-    getgems_button = InlineKeyboardButton(getgems_text, url=nft.sale.link)
-    tonviewer_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
+    getgems_button = InlineKeyboardButton(text= getgems_text, url=nft.sale.link)
+    tonviewer_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
     keyboard.inline_keyboard.append([getgems_button, tonviewer_button])
 
-    collection_button = InlineKeyboardButton(f"{translate[lang]['tg_util'][2]} Getgems", url=nft.collection.get_url())
+    collection_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][2]} Getgems", url=nft.collection.get_url())
     keyboard.inline_keyboard.append([collection_button])
 
     ad = get_ad()
@@ -245,7 +245,7 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1
             curr_ad['name'] = translate[lang]['tg_util'][4]
         else:
             curr_ad['name'] = f"AD: {curr_ad['name']}"
-        ad_button = InlineKeyboardButton(curr_ad['name'], url=curr_ad['link'])
+        ad_button = InlineKeyboardButton(text=curr_ad['name'], url=curr_ad['link'])
         keyboard.inline_keyboard.append([ad_button])
 
     if notify_settings['setup']:
@@ -310,7 +310,7 @@ async def prepare_notify(first=10):
             chat = await bot.get_chat(sender['telegram_id'])
         except (TelegramNotFound, TelegramForbiddenError):
             delete_senders_data(id=sender['id'])
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(translate[lang]['tg_util'][3], url=invite)]])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=translate[lang]['tg_util'][3], url=invite)]])
             await new_message(text=f"You deleted me from the chat {snippet(sender['telegram_id'])}\nPlease let me back.", 
                               chat_id=sender['telegram_user'],
                               keyboard=keyboard, thread_id=sender['topic_id'])
@@ -490,11 +490,11 @@ async def list_notifications(message: types.Message, delete = False):
                 _chat = None
             name = (_chat.full_name if _chat else "Chat ID: " + sender['telegram_id']) if message.chat.type == 'private' else short_address(sender['collection_address'])
             if not delete:
-                keyboard.inline_keyboard.append([InlineKeyboardButton(f"{sender['name']} ({name})", callback_data=f"setup_{sender['id']}")])
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"{sender['name']} ({name})", callback_data=f"setup_{sender['id']}")])
             else:
-                keyboard.inline_keyboard.append([InlineKeyboardButton(f"{sender['name']} ({name})", callback_data=f"delete_{sender['id']}")])
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"{sender['name']} ({name})", callback_data=f"delete_{sender['id']}")])
     if not (delete or message.chat.type == 'private'):
-        keyboard.inline_keyboard.append([InlineKeyboardButton(translate[lang]["Add"], callback_data='add_notification')])
+        keyboard.inline_keyboard.append([InlineKeyboardButton(text=translate[lang]["Add"], callback_data='add_notification')])
     keyboard = quit_keyboard(message.chat.id, keyboard)
     text = snippet['bold'].format(text=(translate[lang]['settings'][10 if message.chat.type == 'private' else 0].format(count=valid) if not delete else translate[lang]['settings'][9]))
     await new_message(text=text, chat_id=message.chat.id, keyboard=keyboard, thread_id=message.message_thread_id)
@@ -545,9 +545,9 @@ async def settings(query: types.CallbackQuery):
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][4])}: {collection.owner.link_user_text()}\n\n"
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][5])}: {collection.description}\n"
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[# InlineKeyboardButton(f"{translate[lang]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
-                                                InlineKeyboardButton(f"{translate[lang]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")]])
-            keyboard.inline_keyboard.append([InlineKeyboardButton(f"{translate[lang]['settings'][8]}", callback_data="list_notification")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[# InlineKeyboardButton(text=f"{translate[lang]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
+                                                InlineKeyboardButton(text=f"{translate[lang]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")]])
+            keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"{translate[lang]['settings'][8]}", callback_data="list_notification")])
             await try_to_edit(text=text, chat_id=query.message.chat.id, message_id=query.message.message_id, keyboard=keyboard)      
             
 @dp.callback_query(lambda c: c.data.startswith('delete_'))
