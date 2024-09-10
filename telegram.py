@@ -119,7 +119,7 @@ async def try_to_edit(text:str, chat_id:int, message_id:int, keyboard: InlineKey
         logger.debug('Message ID is None to edit in chat ' + str(chat_id))
         return False
     try:
-        await bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard)
+        await bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=keyboard, parse_mode=DEFAULT_PARSE_MODE)
         return True
     except (TelegramNotFound, TelegramForbiddenError):
         return False
