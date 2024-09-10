@@ -178,6 +178,42 @@ def get_ad(db_path=db_path):
 
 
 
+#topics
+def get_topic(id:int = None, chat_id:int = None, thread_id:int = None, db_path=db_path):
+    conditions, params = [], []
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        if chat_id:
+            conditions.append("telegram_id = ?")
+            params.append(chat_id)
+        if id:
+            conditions.append("id = ?")
+            params.append(id)
+        if thread_id:
+            conditions.append("topic_id = ?")
+            params.append(thread_id)
+        cursor.execute(f'SELECT * FROM topics WHERE {" AND ".join(conditions)}', params)
+        topic = cursor.fetchone()
+        header = [description[0] for description in cursor.description]
+        topic = dict(zip(header, topic))
+        return topic
+    
+def set_topic(topic: dict, db_path=db_path):
+    insert = "INSERT INTO topics (chat_id, thread_id, name) VALUES (?, ?, ?)"
+    find = "SELECT * FROM topics WHERE chat_id = ? AND thread_id = ?"
+    update = "UPDATE topics SET name = ? WHERE id = ?"
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        prev = cursor.execute(find, (topic['chat_id'], topic['thread_id'])).fetchone()
+        if prev:
+            cursor.execute(update, (topic['name'], prev[0]))
+        else:
+            cursor.execute(insert, (topic['chat_id'], topic['thread_id'], topic['name']))
+        conn.commit()
+        prev = cursor.execute(find, (topic['chat_id'], topic['thread_id'])).fetchone()
+        return prev[0] or -1
+
+
 #senders
 def update_senders_data(updated_senders_data:list, db_path=db_path) -> None:
     for send in updated_senders_data:
@@ -249,7 +285,7 @@ def get_sender_data(address: str = None, chat_id: int = None, thread_id: int = N
         logger.error(f"An error occurred: {e}")
         return []
 
-def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int = None) -> int:
+def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int = -1) -> int:
     copy_sender = sender.copy()
     copy_sender['last_time'] = copy_sender.get('last_time') or now()  # Обновляем время отправителя
     copy_sender['timezone'] = copy_sender.get('timezone') or tz  # Устанавливаем временную зону
@@ -265,7 +301,7 @@ def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int =
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             
-            if id:
+            if id > 0:
                 # Если id существует, обновляем запись
                 query = f"UPDATE senders SET {', '.join(f'{key} = ?' for key in copy_sender.keys())} WHERE id = ?"
                 params = (*copy_sender.values(), id)
@@ -278,7 +314,7 @@ def set_sender_data(sender: dict, db_path: str = db_path, tz: int = 0, id: int =
             cursor.execute(query, params)
             
             # Если это INSERT, возвращаем последний вставленный id
-            if not id:
+            if id < 0:
                 cursor.execute("SELECT id FROM senders WHERE rowid = last_insert_rowid()")
                 rec = cursor.fetchone()
                 id = rec[0]

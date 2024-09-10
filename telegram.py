@@ -9,7 +9,7 @@ import time
 from date import now, number_to_date
 from database import (fetch_config_data, get_last_time, get_ad, enter_last_time, enter_price, update_senders_data, 
                       return_chat_language, delete_senders_data,  get_logger, enter_cache, get_cache, get_sender_data, 
-                      set_sender_data, clear_cache, clear_bad_senders)
+                      set_sender_data, clear_cache, clear_bad_senders, get_topic, set_topic)
 from getgems import (
     get_new_history, get_nft_info, get_collection_info, address_converter, short_address,
     HistoryItem, HistoryType, ContentType, NftItem, MarketplaceType, AddressType
@@ -76,6 +76,10 @@ def is_command(message:types.Message, command:str) -> bool:
     if not is_this_command:
         return False
     return to_bot_or_not(message)
+
+def find_topic_context(message:types.Message):
+    r = message.reply_to_message
+    return r.forum_topic_edited or r.forum_topic_created
 
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
@@ -175,29 +179,6 @@ async def new_message(text: str, chat_id: int, thread_id: int = -1 ,keyboard: In
         error_text =  str(e)
         logger.error(f'Error sending message in chat {chat_id}: {error_text}')
         return
-  
-async def send_error_message(chat_id:int, message:str, e:Exception = None, only_dev:bool = False) -> types.Message:
-    cache = await get_cache(chat_id) ##cache
-    keyboard = quit_keyboard(chat_id)
-    
-    cache['process'] = True
-    if cache['error']:
-        await try_to_delete(chat_id, cache['error'])
-    if cache['welcome']:
-        await try_to_delete(chat_id, cache['welcome'])
-        cache['welcome'] = None
-        
-    if e is not None:
-        err_t = f'Error: {e}' if str(e) else 'Error: No details'
-        logger.error(traceback.format_stack()[-2].split('\n')[0].strip() + f'\t{err_t}')
-    if only_dev:
-        ERROR_MESS = await new_message(text=message, chat_id=config['dev'], keyboard=keyboard)
-    else:
-        ERROR_MESS = await new_message(text=message, chat_id=chat_id, keyboard=keyboard)
-    
-    cache['error'] = ERROR_MESS.message_id
-    await enter_cache(chat_id, cache) ##write
-    return ERROR_MESS
 
 @dp.callback_query(lambda c: c.data == 'delete_message')
 async def delete_message(call: types.CallbackQuery):
@@ -254,18 +235,19 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1
 
     text = nft.notify_text(tz=tz, lang=lang)
     content = nft.get_content_url()
+    _thread = get_topic(chat_id=chat_id, thread_id=thread_id)
 
     for _ in range(retries + 1):
         try:
             if nft.content.type == ContentType.Image:
                 photo = content if "https://" in content else nft.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo, thread_id=thread_id)
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo, thread_id=_thread['thread_id'])
             elif nft.content.type == ContentType.Video:
                 video = content if "https://" in content else nft.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video, thread_id=thread_id)
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video, thread_id=_thread['thread_id'])
             else:
                 async with aiofiles.open(nft.content.original, 'rb') as photo:
-                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo, thread_id=thread_id)
+                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo, thread_id=_thread['thread_id'])
             return True
         except Exception as e:
             logger.error(e)
@@ -309,11 +291,12 @@ async def prepare_notify(first=10):
         try:
             chat = await bot.get_chat(sender['telegram_id'])
         except (TelegramNotFound, TelegramForbiddenError):
-            delete_senders_data(id=sender['id'])
+            delete_senders_data(chat_id=sender['telegram_id'])
+            _thread = get_topic(id=sender['topic_id'])
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=translate[lang]['tg_util'][3], url=invite)]])
             await new_message(text=f"You deleted me from the chat {snippet(sender['telegram_id'])}\nPlease let me back.", 
                               chat_id=sender['telegram_user'],
-                              keyboard=keyboard, thread_id=sender['topic_id'])
+                              keyboard=keyboard, thread_id=_thread['thread_id'])
             return []
         except Exception as e:
             chat = None
@@ -402,7 +385,7 @@ async def is_bot_configured(message: types.Message):
     text[0] = snippet['bold'].format(text=text[0])
     text[1] = snippet['italic'].format(text=text[1])
     text = '\n\n'.join(text)
-    key = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=translate[lang]['Close'], callback_data='delete_message')]])
+    key = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"{translate[lang]['tg_util'][3]}", url=invite)]])
     keyboard = quit_keyboard(message.chat.id, key)
     
     if message.chat.type == 'private':
@@ -448,14 +431,22 @@ async def add_setup(message: types.Message):
         logger.info(f"Bot added to a new chat: {message.chat.id}")
         senders = get_sender_data(chat_id=message.chat.id, thread_id=message.message_thread_id or -1, new = True)
         sender = senders[0]
+        
+        if message.chat.type == 'supergroup':
+            topic_context = find_topic_context(message).name
+            tid = set_topic(topic={'chat_id': message.chat.id, 'thread_id': message.message_thread_id or -1, 'name': topic_context})
+            sender['topic_id'] = tid or -1
+        else:
+            sender['topic_id'] = -1
+        
         sender['telegram_id'] = message.chat.id
-        sender['topic_id'] = message.message_thread_id or -1
         sender['telegram_user'] = message.from_user.id
         id = sender.get('id') or -1
         lang = return_chat_language(message.chat.id)
         setup_message = await new_message(chat_id=message.chat.id, text=translate[lang]['start_setup'], keyboard=language_keyboard(id), thread_id=message.message_thread_id)
-        messid = setup_message.message_id or -1
+        messid = setup_message.message_id if setup_message else -1
 
+        set_sender_data(sender, id = id)
         enter_cache(user_id=message.chat.id, keys={'sender': int(sender['id']), 'setup':  message.message_id})
         logger.info(f"Setup message sent with ID: {messid}")
         
@@ -487,8 +478,17 @@ async def list_notifications(message: types.Message, delete = False):
                 except:
                     _chat = None
             else:
-                _chat = None
-            name = (_chat.full_name if _chat else "Chat ID: " + sender['telegram_id']) if message.chat.type == 'private' else short_address(sender['collection_address'])
+                _chat = message.chat
+            _topic = get_topic(sender['topic_id'])  
+            
+            if message.chat.type == 'private':
+                # Для приватных чатов
+                name = f'{_chat.full_name if _chat else "Chat ID: " + sender["telegram_id"]}' \
+                    f', {("TID: " + sender["topic_id"] if not _topic else _topic["name"]) if _chat.type == "supergroup" else ""}'
+            else:
+                # Для остальных типов чатов
+                name = short_address(sender['collection_address'])
+
             if not delete:
                 keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"{sender['name']} ({name})", callback_data=f"setup_{sender['id']}")])
             else:
@@ -522,9 +522,7 @@ async def on_language_selected(call: CallbackQuery):
         else:
             sender = get_sender_data(id=cache.get('sender'))[0]
         sender['language'] = args[1]
-        sender['telegram_id'] = call.message.chat.id
         sender['telegram_user'] = call.from_user.id
-        sender['topic_id'] = call.message.message_thread_id or -1
         sender_id = set_sender_data(sender)
         enter_cache(user_id=call.message.chat.id, keys={'sender': int(sender_id), 'setup':  call.message.message_id})
         await try_to_edit(translate[sender['language']]["setup"][0], call.message.chat.id, call.message.message_id)
@@ -539,12 +537,16 @@ async def settings(query: types.CallbackQuery):
         lang = return_chat_language(query.message.chat.id)
         address = sender['collection_address']
         text = f"<b>{translate[lang]['settings'][1]}</b>\n\n"
+        _chat = await bot.get_chat(sender['telegram_id'])
         collection = await get_collection_info(collection_address=address)
         if collection and address_converter(collection.address) == address_converter(address):
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][2])}: {collection.name}\n"
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][3])}: {snippet['code'].format(text=collection.address)}\n"
             text += f"{snippet['bold'].format(text=translate[lang]['settings'][4])}: {collection.owner.link_user_text()}\n\n"
-            text += f"{snippet['bold'].format(text=translate[lang]['settings'][5])}: {collection.description}\n"
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][5])}: {collection.description}\n\n"
+            
+            text += snippet['bold'].format(text=translate[lang]['settings'][11].format(text=f'{_chat.full_name} ({snippet["code"].format(text=_chat.id)})')) + "\n"
+            text += f"{snippet['bold'].format(text=translate[lang]['settings'][12]).format(text=get_topic(id=sender['topic_id'])['name']) if sender['topic_id'] != -1 else '#general'}\n" if _chat.type == 'supergroup' else ''
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[# InlineKeyboardButton(text=f"{translate[lang]['settings'][6]}", callback_data=f"edit_{int(query.data.split('_')[1])}"),
                                                 InlineKeyboardButton(text=f"{translate[lang]['settings'][7]}", callback_data=f"delete_{int(query.data.split('_')[1])}")]])
             keyboard.inline_keyboard.append([InlineKeyboardButton(text=f"{translate[lang]['settings'][8]}", callback_data="list_notification")])
