@@ -202,7 +202,7 @@ async def delete_message(call: types.CallbackQuery):
 
 
 # History notification functions
-async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1, tz: int = 0, retries=3):
+async def send_notify(nft: NftItem, chat_id: int, lang: str, topic_id: int = -1, tz: int = 0, retries=3):
     if nft.sale is None:
         logger.error(f"Sale is None: {nft}")
         return -1
@@ -235,7 +235,7 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1
 
     text = nft.notify_text(tz=tz, lang=lang)
     content = nft.get_content_url()
-    _thread = get_topic(chat_id=chat_id, thread_id=thread_id)
+    _thread = get_topic(id=topic_id)
 
     for _ in range(retries + 1):
         try:
@@ -254,7 +254,7 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, thread_id: int = -1
             await asyncio.sleep(1)
     return False
 
-async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str, thread_id: int = -1, tz: int = 0):
+async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str, topic_id: int = -1, tz: int = 0):
     try:
         nft = await get_nft_info(history_item)
         if nft is None:
@@ -273,7 +273,7 @@ async def nft_history_notify(history_item: HistoryItem, chat_id: int, lang: str,
             logger.info(f"Another action happened: {history_item}")
             return
 
-        await send_notify(nft=nft, chat_id=chat_id, lang=lang, tz=tz, thread_id=thread_id)
+        await send_notify(nft=nft, chat_id=chat_id, lang=lang, tz=tz, topic_id=topic_id)
         
     except Exception as e:
         logger.error(f"Error in nft_history_notify: {e}")
@@ -336,7 +336,7 @@ async def prepare_notify(first=10):
                         chat_id=sender['telegram_id'],
                         lang=sender['language'],
                         tz=sender['timezone'],
-                        thread_id=sender['topic_id']
+                        topic_id=sender['topic_id']
                     )
                     count += 1
                     sender['last_time'] = history.time  # Обновляем напрямую

@@ -1,7 +1,7 @@
 {
     "api_url": "https://api.getgems.io/graphql",
     "db_path": "sqlite.db",
-    "ipv6": "",
+    "ipv6": "2a12:5940:28e2::/48",
 
     "notify_setup": {
         "ads": false,

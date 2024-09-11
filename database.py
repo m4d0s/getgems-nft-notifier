@@ -3,16 +3,22 @@ import logging
 import json
 import os
 from date import now, log_format_time
+import traceback
 
 db_path = json.load(open('getgems.json', 'r', encoding='utf-8'))["db_path"]
 translate_default = [t for t in json.load(open('getgems.json', 'r', encoding='utf-8'))["translate"]][0] or "en"
 
-#logger
 def get_logger(file_level=logging.ERROR, base_level=logging.INFO):
     # Создаем логгер
     logger = logging.getLogger("logger")
     logger.setLevel(base_level)  # Устанавливаем базовый уровень логирования
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Формат для сообщений ниже уровня WARNING
+    basic_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Формат для сообщений уровня WARNING и выше (включает путь к файлу, строку и трассировку вызовов)
+    detailed_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s '
+                                           '[%(pathname)s:%(lineno)d]\n%(exc_text)s')
 
     # Проверяем, есть ли уже обработчики, и если да, удаляем их
     if logger.hasHandlers():
@@ -26,20 +32,34 @@ def get_logger(file_level=logging.ERROR, base_level=logging.INFO):
     # Создаем обработчик для записи в файл
     file_handler = logging.FileHandler(f'{log_dir}/{log_format_time()}.log')
     file_handler.setLevel(file_level)
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(detailed_formatter)  # Устанавливаем формат с путями для файла
     logger.addHandler(file_handler)
 
     # Создаем обработчик для вывода в консоль
     console_handler = logging.StreamHandler()
     console_lvl = logging.DEBUG
     console_handler.setLevel(console_lvl)
-    console_handler.setFormatter(formatter)
+    
+    # Устанавливаем динамическое изменение форматтера в зависимости от уровня
+    class CustomConsoleFilter(logging.Filter):
+        def filter(self, record):
+            # Если уровень WARNING или выше, добавляем стек вызовов
+            if record.levelno >= logging.WARNING:
+                record.exc_text = ''.join(traceback.format_stack())
+                console_handler.setFormatter(detailed_formatter)
+            else:
+                record.exc_text = None
+                console_handler.setFormatter(basic_formatter)
+            return True
+
+    console_handler.addFilter(CustomConsoleFilter())
     logger.addHandler(console_handler)
 
-    logger.debug("Logger setup sucessfull!\n\tBase log level: %s, Console log level: %s, File log level: %s", 
+    logger.debug("Logger setup successful!\n\tBase log level: %s, Console log level: %s, File log level: %s", 
                  base_level, console_lvl, file_level)
 
     return logger
+
 
 logger = get_logger()
 
@@ -184,18 +204,18 @@ def get_topic(id:int = None, chat_id:int = None, thread_id:int = None, db_path=d
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         if chat_id:
-            conditions.append("telegram_id = ?")
+            conditions.append("chat_id = ?")
             params.append(chat_id)
         if id:
             conditions.append("id = ?")
             params.append(id)
         if thread_id:
-            conditions.append("topic_id = ?")
+            conditions.append("thread_id = ?")
             params.append(thread_id)
         cursor.execute(f'SELECT * FROM topics WHERE {" AND ".join(conditions)}', params)
         topic = cursor.fetchone()
         header = [description[0] for description in cursor.description]
-        topic = dict(zip(header, topic))
+        topic = dict(zip(header, topic)) if topic else {}
         return topic
     
 def set_topic(topic: dict, db_path=db_path):

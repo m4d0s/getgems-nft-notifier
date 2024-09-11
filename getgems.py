@@ -384,6 +384,7 @@ class AuctionItem:
     else:
       self.last_bid = data['bid']
     self.type = data['type']
+    self.status = data['status']
     self.link = data['link'] if 'link' in data and data['link'] is not None \
                   else f'https://getgems.io/nft/{data["address"]}'
     if data['type'] == MarketplaceType.Getgems:
@@ -496,6 +497,8 @@ class SaleItem:
     self.currency = 'TON'
     self.nft_owner = data['nftOwnerAddressUser']
     self.link = f'https://getgems.io/nft/{data["address"]}'
+    self.type = data['type']
+    self.status = data['status']
     self.price = PriceItem({
       'price': int(data['fullPrice']),
       'currency': self.currency,
@@ -510,6 +513,7 @@ class SaleItem:
             f"<b>{translate[lang]['SaleItem'][0]}</b> {self.nft_owner.link_user_text()}"]
     clear = [x for x in text if text != ""]
     return '\n'.join(clear) 
+  
   def __repr__(self):
     return f"SaleItem({', '.join([f'{k}={v!r}' for k, v in self.__dict__.items()])})"
 
@@ -546,6 +550,7 @@ class NftItem:
       self.marketplace = MarketplaceType.Getgems
       self.status = NftStatusType.NotForSale
       self.sale = None
+      
   def get_content_url(self, original = True):
     if self.content is not None and original and self.content.original is not None: 
       return self.content.original

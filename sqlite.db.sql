@@ -1,3 +1,4 @@
+-- database: sqlite.db
 BEGIN TRANSACTION;
 CREATE TABLE IF NOT EXISTS "ads" (
 	"id"	INTEGER,
@@ -16,8 +17,8 @@ CREATE TABLE IF NOT EXISTS "price" (
 	"value"	REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS "config" (
-	"value"	TEXT,
-	"key"	TEXT
+	"value"	TEXT UNIQUE NOT NULL,
+	"key"	TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS "proxy" (
 	"link"	TEXT NOT NULL,
@@ -48,11 +49,11 @@ CREATE TABLE IF NOT EXISTS "topics" (
 	"name"	TEXT NOT NULL,
 	PRIMARY KEY("id" AUTOINCREMENT)
 );
-INSERT INTO "config" ("value","key") 
-VALUES 
- ('bot_api','https://t.me/BotFather'),
- ('ton_api','https://tonconsole.com/'),
- ('cmc_api','https://pro.coinmarketcap.com/login/'),
- ('dev','your_telegram_id'),
- ('now','0');
+-- INSERT INTO "config" ("value","key") 
+-- VALUES 
+--  ('bot_api','https://t.me/BotFather'),
+--  ('ton_api','https://tonconsole.com/'),
+--  ('cmc_api','https://pro.coinmarketcap.com/login/'),
+--  ('dev','your_telegram_id'),
+--  ('now','0');
 COMMIT;
