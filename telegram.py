@@ -211,7 +211,7 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, topic_id: int = -1,
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
     getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if nft.marketplace == MarketplaceType.Getgems or "getgems" in nft.sale.link else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=nft.sale.link)}"
-    getgems_button = InlineKeyboardButton(text= getgems_text, url=nft.sale.link)
+    getgems_button = InlineKeyboardButton(text=getgems_text, url=nft.sale.link)
     tonviewer_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
     keyboard.inline_keyboard.append([getgems_button, tonviewer_button])
 
