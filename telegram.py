@@ -238,19 +238,19 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, topic_id: int = -1,
 
     text = nft.notify_text(tz=tz, lang=lang)
     content = nft.get_content_url()
-    _thread = get_topic(id=topic_id)
+    _thread = get_topic(id=topic_id).get('thread_id', -1)
 
     for _ in range(retries + 1):
         try:
             if nft.content.type == ContentType.Image:
                 photo = content if "https://" in content else nft.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo, thread_id=_thread['thread_id'])
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.IMAGE, file=photo, thread_id=_thread)
             elif nft.content.type == ContentType.Video:
                 video = content if "https://" in content else nft.get_content_url(original=False)
-                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video, thread_id=_thread['thread_id'])
+                await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.VIDEO, file=video, thread_id=_thread)
             else:
                 async with aiofiles.open(nft.content.original, 'rb') as photo:
-                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo, thread_id=_thread['thread_id'])
+                    await new_message(text=text, chat_id=chat_id, keyboard=keyboard, file_type=FilesType.DOCUMENT, file=photo, thread_id=_thread)
             return True
         except Exception as e:
             logger.error(e)
@@ -490,7 +490,7 @@ async def list_notifications(message: types.Message, delete = False):
             if message.chat.type == 'private':
                 # Для приватных чатов
                 name = f'{_chat.full_name if _chat else "Chat ID: " + sender["telegram_id"]}' \
-                    f', {("TID: " + sender["topic_id"] if not _topic else _topic["name"]) if _chat.type == "supergroup" else ""}'
+                    f', {("TID: " + sender["topic_id"] if not _topic else _topic["name"]) if sender.get('topic_id', -1) != -1 else ""}'
             else:
                 # Для остальных типов чатов
                 name = short_address(sender['collection_address'])
