@@ -490,7 +490,7 @@ async def list_notifications(message: types.Message, delete = False):
             if message.chat.type == 'private':
                 # Для приватных чатов
                 name = f'{_chat.full_name if _chat else "Chat ID: " + sender["telegram_id"]}' \
-                    f', {("TID: " + sender["topic_id"] if not _topic else _topic["name"]) if sender.get('topic_id', -1) != -1 else ""}'
+                    f', {("TID: " + sender["topic_id"] if not _topic else _topic["name"]) if sender.get("topic_id", -1) != -1 else ""}'
             else:
                 # Для остальных типов чатов
                 name = short_address(sender['collection_address'])
