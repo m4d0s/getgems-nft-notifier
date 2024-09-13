@@ -79,7 +79,7 @@ def is_command(message:types.Message, command:str) -> bool:
 
 def find_topic_context(message:types.Message):
     r = message.reply_to_message
-    return r.forum_topic_edited or r.forum_topic_created
+    return r.forum_topic_edited or r.forum_topic_created if r else None
 
 def extract_main_domain(url: str):
     domain_regex = re.compile(r'^(?:http[s]?://)?(?:www\.)?([^:/\s]+)')
@@ -282,6 +282,7 @@ async def prepare_notify(first=10):
     count = 0
     history_items = []
     senders_data = get_sender_data()
+    semaphore = asyncio.Semaphore(4)  # Ограничиваем до 10 одновременных задач, можно изменить
     senders_data = [s for s in senders_data if all(s[k] is not None for k in s.keys())]
     logger.info("Start checking for new history data...")
 
@@ -315,7 +316,10 @@ async def prepare_notify(first=10):
         return [(h, sender) for h in history]
 
     # Собираем результаты всех тасков
-    tasks = [gather_history_for_sender(sender) for sender in senders_data]
+    tasks = []
+    for sender in senders_data:
+        async with semaphore:
+            tasks.append(gather_history_for_sender(sender))
     results = await asyncio.gather(*tasks)
 
     # Объединяем все элементы истории
@@ -342,7 +346,6 @@ async def prepare_notify(first=10):
                     sender['last_time'] = history.time  # Обновляем напрямую
 
     # Создаем семафор для ограничения параллельных задач
-    semaphore = asyncio.Semaphore(10)  # Ограничиваем до 10 одновременных задач, можно изменить
 
     # Сортируем историю
     sorted_history_items = sorted(history_items, key=lambda x: int(x[0].time) + x[0].type.value, reverse=True)
@@ -433,12 +436,12 @@ async def add_setup(message: types.Message):
         sender = senders[0]
         
         if message.chat.type == 'supergroup':
-            topic_context = find_topic_context(message).name
-            tid = set_topic(topic={'chat_id': message.chat.id, 'thread_id': message.message_thread_id or -1, 'name': topic_context})
-            sender['topic_id'] = tid or -1
-        else:
-            sender['topic_id'] = -1
+            topic_context = find_topic_context(message)
+            if topic_context:
+                tid = set_topic(topic={'chat_id': message.chat.id, 'thread_id': message.message_thread_id or -1, 'name': topic_context})
+                sender['topic_id'] = tid or -1
         
+        sender['topic_id'] = sender.get('topic_id', -1)
         sender['telegram_id'] = message.chat.id
         sender['telegram_user'] = message.from_user.id
         id = sender.get('id') or -1
