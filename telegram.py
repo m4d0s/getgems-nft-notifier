@@ -133,6 +133,9 @@ async def try_to_edit(text:str, chat_id:int, message_id:int, keyboard: InlineKey
         return
     
 async def new_message(text: str, chat_id: int, thread_id: int = -1 ,keyboard: InlineKeyboardMarkup = None, file_type: FilesType = FilesType.NONE, file = None) -> types.Message:
+    
+    thread_id = None if thread_id == -1 or thread_id is None else thread_id
+    
     async def send():
         if file_type == FilesType.IMAGE:
             return await bot.send_photo(caption=html_back_escape(text), 
@@ -163,7 +166,6 @@ async def new_message(text: str, chat_id: int, thread_id: int = -1 ,keyboard: In
                                           parse_mode=DEFAULT_PARSE_MODE,
                                           disable_web_page_preview=DISABLE_WEB_PAGE_PREVIEW)        
     
-    thread_id = None if thread_id == -1 else thread_id
     try:
         return await send()
     except TelegramForbiddenError as e:
@@ -431,7 +433,7 @@ async def add_setup(message: types.Message):
     can_setup = await can_setup_bot(message)
     is_configured = await is_bot_configured(message)
     await try_to_delete(message.chat.id, message.message_id)
-    if not message.chat.type == 'private' and all([can_setup, is_configured]):
+    if message.chat.type != 'private' and all([can_setup, is_configured]):
         logger.info(f"Bot added to a new chat: {message.chat.id}")
         senders = get_sender_data(chat_id=message.chat.id, thread_id=message.message_thread_id or -1, new = True)
         sender = senders[0]
@@ -442,7 +444,7 @@ async def add_setup(message: types.Message):
                 tid = set_topic(topic={'chat_id': message.chat.id, 'thread_id': message.message_thread_id or -1, 'name': topic_context})
                 sender['topic_id'] = tid or -1
         
-        sender['topic_id'] = sender.get('topic_id', -1)
+        sender['topic_id'] = sender.get('topic_id', -1) or -1
         sender['telegram_id'] = message.chat.id
         sender['telegram_user'] = message.from_user.id
         id = sender.get('id') or -1
