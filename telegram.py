@@ -51,6 +51,12 @@ class FilesType:
     VIDEO = 2
     DOCUMENT = 3
 
+class ChatType:
+    CHANNEL = 'channel'
+    SUPERGROUP = 'supergroup'
+    GROUP = 'group'
+    PRIVATE = 'private'
+
 
 
 # Helpful functions
@@ -209,14 +215,15 @@ async def send_notify(nft: NftItem, chat_id: int, lang: str, topic_id: int = -1,
         logger.error(f"Sale is None: {nft}")
         return -1
     
-    getgems_button = InlineKeyboardButton(text=getgems_text, url=nft.sale.link)
-    tonviewer_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
-
     bot_info = await bot.get_me()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-
     getgems_text = f"{translate[lang]['tg_util'][0]} Getgems" if nft.marketplace == MarketplaceType.Getgems or "getgems" in nft.sale.link else f"{translate[lang]['tg_util'][0]} {extract_main_domain(url=nft.sale.link)}"
+
+    
+    getgems_button = InlineKeyboardButton(text=getgems_text, url=nft.sale.link)
+    tonviewer_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][1]} TonViewer", url=f"https://tonviever.com/{nft.address}")
     keyboard.inline_keyboard.append([getgems_button, tonviewer_button])
+
 
     collection_button = InlineKeyboardButton(text=f"{translate[lang]['tg_util'][2]} Getgems", url=nft.collection.get_url())
     keyboard.inline_keyboard.append([collection_button])
@@ -587,13 +594,13 @@ async def handle_reply(message: types.Message):
         sender['collection_address'] = message.text
         if not get_sender_data(address=message.text, chat_id=message.chat.id, thread_id=message.message_thread_id or -1):
             set_sender_data(sender, id = cache.get('sender'))
-            await message.reply_to_message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
+            await message.reply(translate[lang]["setup"][2], reply_markup=quit_keyboard(message.chat.id))
             clear_cache(message.chat.id)
         else:
-            await message.reply_to_message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
+            await message.reply(translate[lang]["setup"][4], reply_markup=quit_keyboard(message.chat.id))
             await try_to_delete(message.chat.id, cache.get('setup'))
     else:
-        await message.reply_to_message.reply(translate[lang]["setup"][3])
+        await message.reply(translate[lang]["setup"][3])
     await try_to_delete(message.chat.id, cache.get('setup'))
     
 
@@ -665,8 +672,44 @@ async def inline_link_preview(query: types.InlineQuery):
         )    
         
     await query.answer([result], cache_time=1)
+
+@dp.my_chat_member()
+async def on_chat_member_update(update: types.ChatMemberUpdated):
+    chat = update.chat
+    old_status = update.old_chat_member.status
+    new_status = update.new_chat_member.status
     
-    
+    # Проверяем, что изменения касаются именно бота
+    if update.new_chat_member.user.id == (await bot.me()).id:
+        # Определяем имя и тип чата
+        chat_name = chat.title if chat.title else "Без названия"
+        chat_type = chat.type
+
+        if chat_type == ChatType.PRIVATE:
+            chat_type_name = "Личное сообщение"
+        elif chat_type == ChatType.GROUP:
+            chat_type_name = "Группа"
+        elif chat_type == ChatType.SUPERGROUP:
+            chat_type_name = "Супергруппа"
+        elif chat_type == ChatType.CHANNEL:
+            chat_type_name = "Канал"
+        else:
+            chat_type_name = "Неизвестный тип"
+
+        # Обработка различных статусов
+        if new_status == types.ChatMemberLeft:
+            logger.info(f"Бот был удалён из чата: {chat_name} (тип: {chat_type_name})")
+        elif new_status == types.ChatMemberMember:
+            logger.info(f"Бот был добавлен в чат: {chat_name} (тип: {chat_type_name})")
+        elif new_status == types.ChatMemberAdministrator:
+            logger.info(f"Бот был назначен администратором в чате: {chat_name} (тип: {chat_type_name})")
+        elif new_status == types.ChatMemberRestricted:
+            logger.info(f"Боту были изменены права в чате: {chat_name} (тип: {chat_type_name})")
+        elif new_status == types.ChatMemberLeft:
+            logger.info(f"Бот покинул чат: {chat_name} (тип: {chat_type_name})")
+        else:
+            logger.info(f"Статус бота в чате {chat_name} изменён: {old_status} -> {new_status}")
+
     
 # just main
 async def on_startup():

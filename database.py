@@ -116,7 +116,7 @@ def enter_cache(user_id: int, keys: dict, db_path: str = db_path):
                     cursor.execute(insert, (k, v, user_id))
                 conn.commit()
         except sqlite3.Error as e:
-            print(f"An error occurred: {e}")
+            logger.info(f"An error occurred: {e}")
         
 def get_cache(user_id:int, db_path=db_path) -> dict:
     
